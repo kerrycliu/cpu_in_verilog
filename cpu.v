@@ -19,73 +19,215 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-
 module cpu(
     input rst_n,
     input clk,
-    output [31:0] imem_addr,
+    output reg [31:0] imem_addr,
     input [31:0] imem_insn,
-    output [31:0] dmem_addr,
-    inout [31:0] dmem_data,
-    output dmem_wen
+    output reg [31:0] dmem_addr,
+    output reg [31:0] dmem_data,
+    output reg dmem_wen
     );
     
-    //16-bit counter
-    reg [15:0] counter;
-    reg [31:0] PC;
-    //pipelining
-    reg fetch_reg, decode_reg, execute_reg, memAccess_reg, writeBack_reg;
+  reg [31:0] pc;
+  reg fetch_decode_reg, decode_exec_reg, exec_mem_reg, mem_wriback_reg;
+  reg [31:0] instruction;
+  reg [4:0] rs1,rd,rd_prev;
+  reg [2:0] func3;
+  reg [6:0] opcode;
+  reg [31:0] imm;
+  reg signed [31:0] alu_result;
+  reg [31:0] regfile [31:0]; // each element in the regfile is 32 bits long, and the reg file holds 32 elements (regfile[31:0])
+  reg signed [31:0] dmem;
+  reg [15:0] clock_counter;
+  reg stall;
+
+  integer pc_file, reg_file;
+  
+ 
+    initial begin
+        pc_file = $fopen("pc_trace.txt", "w");
+        reg_file = $fopen("reg_trace.txt", "w");
+    end 
     
-    //fetch
-    always@(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-           counter <= 16'b0;
-           end
-        else begin
-           counter <= counter + 1;
-           end
+// 16 bit counter
+    always@(posedge clk or negedge rst_n or negedge rst_n)
+    begin
+        if(!rst_n) clock_counter <= 0;
+        else clock_counter <= clock_counter + 1;
     end
     
-    //decode
-    always@(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-           counter <= 16'b0;
-           end
-        else begin
-           counter <= counter + 1;
-           end
+//Fetch
+    always@(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n)
+        begin
+            pc <= 32'b0;
+            instruction <= 8'hx;
+            imem_addr <= 32'b0;
+            fetch_decode_reg <= 0;
+            stall = 0;
+        end
+        else
+        begin
+            if(stall == 1)
+            begin
+            // everything stay the same in stall
+                pc_file = $fopen("pc_trace.txt", "a");
+                pc <= pc;
+                instruction <= instruction;
+                imem_addr <= imem_addr;
+                $fdisplay(pc_file, "pc : %h\n", pc);
+                $fdisplay(pc_file, "STALLED\n");
+                $display("pc : %h\n", pc);
+                $display("STALLED\n");
+                fetch_decode_reg <= 0;
+                
+            end
+            else
+            begin
+                pc_file = $fopen("pc_trace.txt", "a");
+                pc <= pc + 4;
+                instruction <= imem_insn;
+                fetch_decode_reg <= 1;
+                imem_addr <= pc;
+                $fdisplay(pc_file, "pc : %h\n", imem_addr);
+                $display("pc : %h\n", imem_addr);
+            end
+        end
     end
-    
-    //execute
-    always@(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-           counter <= 16'b0;
-           end
-        else begin
-           counter <= counter + 1;
-           end
-    end
-    // memory access
-    always@(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-           counter <= 16'b0;
-           end
-        else begin
-           counter <= counter + 1;
-           end
-    end
-    
-    //Write Back
-    always@(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-           counter <= 16'b0;
-           end
-        else begin
-           counter <= counter + 1;
-           end
-    end
-    
-    
         
+// Decode
+    always@(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n)
+        begin
+            imm <= 32'bx;
+            rs1 <= 5'bx;
+            rd <= 5'bx;
+            func3 <= 3'bx;
+            opcode <= 7'bx;
+            decode_exec_reg <= 0;
+            stall = 0;
+        end
+        else
+        begin
+            if(stall == 1)
+            begin         
+                imm <= imm;
+                rs1 <= rs1;
+                rd <= rd;
+                func3 <= func3;
+                opcode <= opcode;
+                rd_prev <= rd_prev;
+                decode_exec_reg <= 0;              
+                if(rs1 == rd_prev) begin 
+		          stall = 1;
+		        end
+                else begin 
+		          stall = 0; 
+		        end
+            end           
+            else
+            begin
+                decode_exec_reg <= 1;
+                if((instruction != 8'hx) || fetch_decode_reg)
+                begin
+                    opcode <= instruction[6:0];
+                    func3 <= instruction[14:12];
+                    imm <= {{20{instruction[31]}},{instruction[31:20]}};
+                    rs1 <= instruction[19:15];
+                    if(rs1 == rd_prev) begin
+		              stall = 1;
+		            end
+                    else begin 
+		              stall = 0;
+	                end
+                    rd <= instruction[11:7];
+                end
+            end
+            $display("--------------------------");
+            $display("CC: %d", clock_counter);
+            $display("opcode: %b", opcode);
+            $display("rs1: %d", rs1);
+            $display("rd: %d", rd);
+            $display("pc: %b", pc);
+          //$display("stall: %d; decode_exec_reg: %d", stall, decode_exec_reg);
+        end
+    end
+    
+// Execute 
+    always@(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n)
+        begin
+            alu_result <= 32'bx;
+            exec_mem_reg <= 0;
+        end
+        else
+        begin
+            begin
+                exec_mem_reg <= decode_exec_reg;
+                rd_prev <= rd;
+                if(decode_exec_reg)
+                begin
+                    if(regfile[rs1] === 32'bxxxxx)
+                    begin
+                        regfile[rd] <= imm + rs1;
+                        alu_result <= imm + rs1;
+                    end
+                    else
+                    begin
+                        regfile[rd] <= imm + regfile[rs1];
+                        alu_result <= imm + regfile[rs1];
+                    end
+                    $display("alu result: %d", alu_result);
+                end
+                if(stall)
+                begin
+                    rd_prev <= 5'bxxxxx;
+                end
+            end
+        end
+    end
+    
+   // Memory Access
+    always@(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n)
+        begin
+            dmem <= 32'bx;
+            mem_wriback_reg <= 0;
+        end
+        else
+        begin
+            mem_wriback_reg <= exec_mem_reg;
+            if(exec_mem_reg)
+            begin
+                dmem <= alu_result;
+                reg_file = $fopen("reg_trace.txt", "a");
+                $fdisplay(reg_file, "register value: %d\n", rd,dmem);
+                $display("Register value: %d", dmem);
+                $display("Register: %d", rd);
+            end
+        end
+    end
+    
+    // Write Back
+    always@(posedge clk or negedge rst_n)
+    begin
+        if(!rst_n)
+        begin
+            dmem_wen <= 0;
+        end
+        else
+        begin
+            dmem_wen <= mem_wriback_reg;
+            if(mem_wriback_reg)
+            begin
+                dmem_addr <= dmem_addr + 4;
+            end
+        end
+    end
     
 endmodule
