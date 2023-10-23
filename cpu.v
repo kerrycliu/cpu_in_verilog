@@ -32,16 +32,19 @@ module cpu(
   reg [31:0] pc;
   reg fetch_decode_reg, decode_exec_reg, exec_mem_reg, mem_wriback_reg;
   reg [31:0] instruction;
-  reg [4:0] rs1,rd,rd_prev;
+  reg [4:0]rs1;
+  reg [4:0] rd,rd_prev;
   reg [2:0] func3;
   reg [6:0] opcode;
   reg [31:0] imm;
   reg signed [31:0] alu_result;
-  reg [31:0] regfile [31:0]; // each element in the regfile is 32 bits long, and the reg file holds 32 elements (regfile[31:0])
-  reg signed [31:0] dmem;
+  reg signed [31:0] regfile [31:0]; // each element in the regfile is 32 bits long, and the reg file holds 32 elements (regfile[31:0])
+  reg [31:0] dmem;
   reg [15:0] clock_counter;
   reg stall;
-
+  parameter addi = 3'b000, slti = 3'b010, sltiu = 3'b011, xori = 3'b100, ori = 3'b110, andi = 3'b111, slli = 3'b001, srli = 3'b101, srai = 3'b101;
+  reg [31:0]calc_result;
+  reg signed [31:0]slli_imm, srli_imm, srai_imm;
   integer pc_file, reg_file;
   
  
@@ -103,6 +106,9 @@ module cpu(
         if(!rst_n)
         begin
             imm <= 32'bx;
+            srai_imm <= 32'bx;
+            srli_imm <= 32'bx;
+            slli_imm <= 32'bx;
             rs1 <= 5'bx;
             rd <= 5'bx;
             func3 <= 3'bx;
@@ -115,6 +121,9 @@ module cpu(
             if(stall == 1)
             begin         
                 imm <= imm;
+                srai_imm <= srai_imm;
+                srli_imm <= srli_imm;
+                
                 rs1 <= rs1;
                 rd <= rd;
                 func3 <= func3;
@@ -136,6 +145,7 @@ module cpu(
                     opcode <= instruction[6:0];
                     func3 <= instruction[14:12];
                     imm <= {{20{instruction[31]}},{instruction[31:20]}};
+                    srai_imm <= {{27{instruction[24]}},{instruction[24:20]}};
                     rs1 <= instruction[19:15];
                     if(rs1 == rd_prev) begin
 		              stall = 1;
@@ -149,13 +159,14 @@ module cpu(
             $display("--------------------------");
             $display("CC: %d", clock_counter);
             $display("opcode: %b", opcode);
-            $display("rs1: %d", rs1);
+            $display("rs1: %b", rs1);
             $display("rd: %d", rd);
-            $display("pc: %b", pc);
+            $display("func3: %b", func3);
           //$display("stall: %d; decode_exec_reg: %d", stall, decode_exec_reg);
         end
     end
     
+    reg [31:0]imm_ext;
 // Execute 
     always@(posedge clk or negedge rst_n)
     begin
@@ -171,17 +182,99 @@ module cpu(
                 rd_prev <= rd;
                 if(decode_exec_reg)
                 begin
+		// I-type instructions 
                     if(regfile[rs1] === 32'bxxxxx)
-                    begin
-                        regfile[rd] <= imm + rs1;
-                        alu_result <= imm + rs1;
+                    begin //check condition for i-type operatrions
+                        // addi
+                        if (func3 == addi) begin                          
+                            regfile[rd] <= imm + rs1;
+                            alu_result <= imm + rs1;
+                        end
+                        // xori
+                        else if (func3 == xori) begin
+                            regfile[rd] <= imm ^ rs1;
+                            alu_result <= imm ^ rs1;
+                        end
+                        // ori
+                        else if (func3 == ori) begin
+                            regfile[rd] <= imm || rs1;
+                            alu_result <= imm || rs1;
+                        end
+                        // andi
+                        else if(func3 == andi) begin
+                            regfile[rd] <= imm & rs1;
+                            alu_result <= imm & rs1;
+                        end
+                        // slti set less than imm
+                        else if(func3 == slti) begin
+                            regfile[rd] <= (rs1 < imm)?1:0;
+                            alu_result <= (rs1 < imm)?1:0;
+                        end
+                        //sltiu set less than imm (u) zero extend 
+                        else if(func3 == sltiu) begin
+                            regfile[rd] <= (rs1 < imm)?1:0;
+                            alu_result <= (rs1 < imm)?1:0;
+                        end
+                        // slli shift left logical imm[5:11]=0x00  -> rd = rs1 << imm[0:4]
+                        else if(func3 == slli) begin                         
+                            regfile[rd] <= (rs1 << imm[4:0]);
+                            alu_result <= (rs1 << imm[4:0]);
+                        end
+                        // srli shift right logical  rd = rs1 >> imm[0:4]
+                        else if(func3 == srli && imm[11:5] == 7'h00) begin
+                            regfile[rd] <= (rs1 >> imm[4:0]);
+                            alu_result <= (rs1 >> imm[4:0]);
+                        end
+                        // shift right alrith imm
+                        else if(func3 == srai && imm[11:5] == 7'h20) begin                        
+                            regfile[rd] = rs1 >>> srai_imm;
+                            alu_result = rs1 >>> srai_imm;
+                        end
                     end
                     else
                     begin
-                        regfile[rd] <= imm + regfile[rs1];
-                        alu_result <= imm + regfile[rs1];
+                        if (func3 == addi)begin
+                            regfile[rd] <= imm + regfile[rs1];
+                            alu_result <= imm + regfile[rs1];
+                        end
+                        else if (func3 == xori) begin
+                            regfile[rd] <= imm ^ regfile[rs1];  // remember to change all the rs1 here to regfile[rs1]
+                            alu_result <= imm ^ regfile[rs1];
+                        end
+                        else if (func3 == ori) begin
+                            regfile[rd] <= imm | regfile[rs1];
+                            alu_result <= imm | regfile[rs1];
+                        end
+                        else if(func3 == andi) begin
+                            regfile[rd] <= imm & regfile[rs1];
+                            alu_result <= imm & regfile[rs1];
+                        end
+                        else if(func3 == slti) begin
+                            regfile[rd] <= (regfile[rs1] < imm)?1:0;
+                            alu_result <= (regfile[rs1] < imm)?1:0;
+                        end
+                        // need to fix: sltiu is zero extend
+                        else if(func3 == sltiu) begin
+                            regfile[rd] <= (regfile[rs1] < imm)?1:0;
+                            alu_result <= (regfile[rs1] < imm)?1:0;
+                        end
+                        else if(func3 == slli) begin
+                            regfile[rd] <= (regfile[rs1] << imm[4:0]);
+                            alu_result <= (regfile[rs1] << imm[4:0]);
+                        end
+                        else if(func3 == srli && imm[11:5] == 7'h00) begin // logical = unsigned
+                            regfile[rd] <= (regfile[rs1] >> imm[4:0]);
+                            alu_result <= (regfile[rs1] >> imm[4:0]);
+                        end
+                        else if(func3 == srai && imm[11:5] == 7'h20) begin
+                            regfile[rd] = regfile[rs1] >>> srai_imm;
+                            alu_result = regfile[rs1] >>> srai_imm;
+                        end
                     end
                     $display("alu result: %d", alu_result);
+                    $display("imm[4:0]: %b", imm[4:0]);
+                    $display("imm_ext: %b", imm_ext);
+                    $display("srai_imm: %b", srai_imm);
                 end
                 if(stall)
                 begin
