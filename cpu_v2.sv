@@ -136,7 +136,10 @@ module cpu(
   always@(posedge clk or negedge rst_n) begin
   	if (!rst_n) pc <= 32'b0;
 	else begin
-		if (mem_branch_out_pcsrc == 1) pc <= add_sum_mux;
+		if (mem_branch_out_pcsrc == 1) begin // check the branch adder output in MEM stage
+			mux_out_pc_in = add_sum_mux;
+			pc <= mux_out_pc_in; // get pc value 
+		end
 		else begin
 			if (stall == 0) begin
 				pc <= pc + 4;
@@ -147,8 +150,8 @@ module cpu(
 
   // ----- stall ----- checks if rd1 or rd2 has the same address as previous rd
   always@(posedge clk or negedge rst_n) begin
-  	if ((ID_EX_IMM_WB != 0) or (EX_MEM_IMM_WB != 0)) begin
-		if ((decode_rd1 == (ID_EX_IMM_WB or EX_MEM_IMM_EB)) or (decode_rd2 == (ID_EX_IMM_WB or EX_MEM_IMM_WB))) begin
+  	if ((ID_EX_IMM_WB != 0) or (EX_MEM_IMM_WB != 0)) begin // if there is rd
+		if ((decode_rd1 == (ID_EX_IMM_WB or EX_MEM_IMM_EB)) or (decode_rd2 == (ID_EX_IMM_WB or EX_MEM_IMM_WB))) begin // if rs1 or rs2 is either of the rd result, set stall to 1
 			stall = 1;
 		end
 		else begin 
@@ -178,7 +181,28 @@ module cpu(
 
   // ----- Decode Stage -----
   // breaking down the INSTRUCTION aka instructions
-  
+  /*
+  WB CTRL:  WB[1] = wb_reg_write_control  // Set reg write sig in ID reg
+  		1: write to register in ID stage
+		0:
+            WB[0] = wb_mem_to_reg_control // does into mux, set write data reg value in ID stage
+  M CTRL: M[2] = mem_m_branch_in // input to branch AND gate
+  		1: signal to mux determines the WriteData (wb_read_data_in or wb_alu_result_mux_in)
+		0:
+  	  M[1] = mem_m_mem_read // dmem MemRead signal
+	  	1:
+		0:
+	  M[0] = mem_m_mem_write // dmem MemWrite signal
+	  	1: MemWrite = mem_rd2_write_data xxxxxxxxxxxxxxxxxxx
+  EX CTRL: EX[2:1] = alu_op // goes into ALU CONTROL, determine instruction TYPE
+  		I-type: 00
+		R-Type: 10
+		S-Type: 01
+		other : 11 (Jump, Branch, Load)
+	   EX[0] = alu_src // signal to mux, determines execute_mux_rd2 value (execute_rd2 or execute_immediate_mux_sl1)
+	   	1: execute_immediate_mux_sl1
+		0: execute_alu_rd2
+  */
   parameter I_TYPE = 7'b0010011, R_TYPE = 7'b0110011, S_TYPE = 7'b0100011, B_TYPE = 7'b1100011, U_TYPE = 7'b0110111, J_TYPE = 7'b1101111;
   always@(*) begin
   	case (INSTRUCTION[6:0])
@@ -195,6 +219,7 @@ module cpu(
 		end
 		S_TYPE: begin
 			decode_m_control = 3'b010; // mem write (store)
+			decode_ex_control = 3'b010; // alu_op
 			decode_immediate = {{20{INSTRUCTION[31]}}, INSTRUCTION[31:25], INSTRUCTION[11:7]};
 		end
 		B_TYPE: begin
@@ -245,8 +270,8 @@ module cpu(
 			ID_EX_M_CTRL <= decode_m_control;
 			ID_EX_EX_CTRL <= decode_ex_control;
 			ID_EX_REG <= decode_if_id_out;
-			ID_EX_RD1 <= decode_rd1;
-			ID_EX_RD2 <= decode_rd2;
+			ID_EX_RD1 <= decode_rd1_ext;
+			ID_EX_RD2 <= decode_rd2_ext;
 			ID_EX_IMM <= decode_immediate;
 			ALU_CTRL_IN <= decode_func7_func3;
 			ID_EX_IMM_WB <= decode_instr_117;
@@ -254,6 +279,11 @@ module cpu(
 		else begin
 			ID_EX_IMM_WB <= 0;
 		end
+	end
+  end
+  always@(negedge clk) begin
+  	if(wb_reg_write_control) begin
+		regfile[wb_write_register_in] = wb_write_data_mux_out;
 	end
   end
 
@@ -296,54 +326,212 @@ module cpu(
 	1001	SRA
 	*/
 
-	reg [31:0] stlu_calc;
-	parameter I_TYPE_SIGNAL = 2'00, R_TYPE = 2'b10;
+	reg [31:0] stlu_calc; // signed stlu var
+	parameter I_TYPE_SIGNAL = 2'00, R_TYPE = 2'b10, S_TYPE = 2'b01;
 
 	case(alu_op_wire) // ID_EX_EX_CTRL[2:1]
 		I_TYPE_SINGAL: begin
 			case (execute_alu_control_in[2:0]) // func3
 				3'h0: begin
-					execute_alu_result = execute_alu_rd1 + execute_mux_out; // addi 
+					execute_alu_control_out = 4'b0000; //ADDI
 				end
 				3'h4: begin
-					execute_alu_result = execute_alu_rd1 ^ execute_mux_out; // xori
+					execute_alu_control_out = 4'b0110; //XORI
 				end
-				3'h6: begin
-					execute_alu_result = execute_alu_rd1 | execute_mux_out; // ori
+				3'h6: begin 
+					execute_alu_control_out = 4'b0111; //ORI
 				end
 				3'h7: begin
-					execute_alu_result = execute_alu_rd1 & execute_mux_out; // andi
+					execute_alu_control_out = 4'b1000; //ANDI
 				end
 				3'h1: begin
-					execute_alu_result = execute_alu_rd1 << execute_mux_out[4:0]; // slli 
+					execute_alu_control_out = 4'b0100; //SLLI
 				end
 				3'h5: begin
-					if (execute_alu_control_in[3] == 0) begin
-						execute_alu_result = execute_alu_rd1 >> execute_mux_out[4:0]; // srli
+					if (execute_alu_control_in[3] == 0) begin // imm[5:11]=0x00 -> srli
+						execute_alu_control_out = 4'b0101; //SRLI
 					end
-					else if (execute_alu_control_in[3] == 1) begin
-						execute_alu_result = execute_alu_rd1 >>> execute_mux_out[4:0]; //srai
+					else if (execute_alu_control_in[3] == 1) begin // imm[5:11]=0x20 -> srai
+						execute_alu_control_out = 4'b1001; //SRAI
 					end
 				end
 				3'h2: begin
-					execute_alu_result = (execute_alu_rd1 < execute_mux_out)?1:0;
+					execute_alu_control_out = 4'0010; //SLTI
 				end
 				3'h3: begin
-					stlu_calc = execute_alu_rd1 - execute_mux_out;
-					execute_alu_result = {31'b0, stlu_calc[31]};
+					execute_alu_control_out = 4'b0011; //SLTIU
 				end
 			endcase
+		end
 		R_TYPE : begin
-			case(execute_alu_control_in)
-			// continue
+			case(execute_alu_control_in) // both func7func3
+				4'b0000: begin
+					execute_alu_control_out = 4'b0000; //ADD
+				end
+				4'b1000: begin
+					execute_alu_control_out = 4'b0001; //SUB
+				end
+				4'b0100: begin
+					execute_alu_control_out = 4'b0110; //XOR
+				end
+				4'b0110: begin
+					execute_alu_control_out = 4'b0111; //OR
+				end
+				4'b0111: begin
+					execute_alu_control_out = 4'b1000; //AND
+				end
+				4'b0001: begin
+					execute_alu_control_out = 4'b0100; //SLL
+				end
+				4'b0101: begin
+					execute_alu_control_out = 4'b0101; //SRL
+				end
+				4'b1101: begin
+					execute_alu_control_out = 4'b1001; //SRA
+				end
+				4'b0010: begin
+					execute_alu_control_out = 4'b0010; //SLT
+				end
+				4'b0011: begin
+					execute_alu_control_out = 4'b0011; //SLTU
+				end
 			endcase
 		end
+		// TODO: LAB6 begin here
+		/*
+		S_TYPE: begin
+			case()
+			endcase
+		end
+		*/
 	endcase
-	// Zero signal
+	// ALU
+	parameter ADD = 4'b0000, SUB = 4'b0001, SLT = 4'b0010, SLTU = 4'b0011, XOR = 4'b0110, OR = 4'b0111, AND = 4'b1000, SRL = 4'b0101, SRA = 4'b1001;
+	case (execute_alu_control_out)
+		ADD: begin
+			execute_alu_result = execute_alu_rd1 + execute_mux_out;
+		end
+		SUB: begin
+			execute_alu_result = execute_alu_rd1 - execute_mux_out;
+		end
+		SLT: begin
+			if(execute_alu_rd1 < execute_mux_out) begin
+				execute_alu_result = 1;
+			end
+			else begin
+				execute_alu_result = 0;
+			end
+		end
+		SLTU: begin
+			sltu_calc = execute_alu_rd1 - execute_mux_out;
+			execute_alu_result = {31'b0, sltu_calc[31]};
+		end
+		XOR: begin
+			execute_alu_result = execute_alu_rd1 ^ execute_mux_out;
+		end
+		OR: begin
+			execute_alu_result = execute_alu_rd1 | execute_mux_out;
+		end
+		AND: begin
+			execute_alu_result = execute_alu_rd1 & execute_mux_out;
+		end
+		SLL: begin
+			execute_alu_result = execute_alu_rd1 << execute_mux_out[4:0];
+		end
+		SRL: begin
+			execute_alu_result = execute_alu_rd1 >> execute_mux_out[4:0];
+		end
+		SRA: begin
+			execute_alu_result = execute_alu_rd1 >>> execute_mux_out[4:0];
+		end
+	endcase
+	
+	if(execute_alu_result == 0) begin
+		// set zero flag
+		zero = 1;
+	end
+	else begin
+		zero = 0;
+	end
 
+	execute_imm_wb = ID_EX_IMM_WB;
   end
 
-					
+  always@(posedge clk or negedge rst_n) begin
+  	if (!rst_n) begin
+		EX_MEM_WB_CTRL <= 2'b0;
+		EX_MEM_M_CTRL <= 3'b0;
+		EX_MEM_IMM_WB <= 5'b0;
+		EX_MEM_ADD_SUM <= 32'b0;
+		EX_MEM_RD2 <= 32'b0;
+		EX_MEM_ALU_RESULT <= 32'b0;
+		EX_MEM_ZERO <= 0;
+	end
+	else begin
+		EX_MEM_WB_CTRL <= execute_wb_control;
+		EX_MEM_M_CTRL <= execute_m_control;
+		EX_MEM_IMM_WB <= execute_imm_wb;
+		EX_MEM_ADD_SUM <= execute_add_sum_out;
+		EX_MEM_RD2 <= execute_mux_rd2;
+		EX_MEM_ALU_RESULT <= execute_alu_result;
+		EX_MEM_ZERO <= zero;
+	end
+  end
+
+  // ----- Memory Access Stage -----
+  always@(*) begin
+  	mem_wb_control = EX_MEM_WB_CTRL;
+	mem_m_branch_in = EX_MEM_M_CTRL[2];
+	mem_m_mem_read = EX_MEM_M_CTRL[1];
+	mem_m_mem_write = EX_MEM_M_CTRL[0];
+	mem_branch_zero_in = EX_MEM_ZERO;
+	mem_branch_out_pcsrc = mem_branch_in + mem_branch_zero_in; // branch adder result goes into mux in fetch
+	mem_alu_result = EX_MEM_ALU_RESULT;
+	add_sum_mux = EX_MEM_ADD_SUM; // goes into the same mux as mem_branch_out_pcsrc
+	mem_rd2_write_data = EX_MEM_RD2;
+	mem_imm_wb = EX_MEM_IMM_WB;
+	dmem_addr = mem_alu_result;
+	dmem_wen = mem_m_mem_write; // control sig
+	mem_read_data_out = dmem_data;
+  end
+  
+  if(mem_m_mem_write) begin
+  	mem_rd_write_data = 32'bx;
+  end
+
+  always@(posedge clk or negedge rst_n) begin
+   	if (!rst_n) begin
+		MEM_WB_WB_CTRL <= 2'b0;
+		MEM_WB_ALU_RESULT <= 32'b0;
+		MEM_WB_READ_DATA <= 32'b0;
+		MEM_WB_IMM_WB <= 5'b0;
+	end
+	else begin
+		MEM_WB_WB_CTRL <= mem_wb_control;
+		MEM_WB_ALU_RESULT <= mem_alu_result;
+		MEM_WB_READ_DATA <= mem_read_data_out;
+		MEM_WB_IMM_WB <= mem_imm_wb;
+	end
+  end
+
+  // ----- Write Back Stage -----
+  always@(*) begin
+  	wb_reg_write_control = MEM_WB_WB_CTRL[1];
+	wb_mem_to_reg_control = MEM_WB_WB_CTRL[0];
+
+	wb_read_data_mux_in = MEM_WB_READ_DATA;
+	wb_alu_result_mux_in = MEM_WB_ALU_RESULT;
+	
+	if(wb_mem_to_reg_control == 1) begin
+		wb_write_data_mux_out = wb_read_data_mux_in;
+	end
+	else begin
+		wb_write_data_mux_out = wb_alu_result_mux_in;
+	end
+
+	wb_write_register_in = MEM_WB_IMM_WB;
+  end
+endmodule
 
 
 			
