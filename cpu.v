@@ -1,452 +1,619 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
+// Company:
+// Engineer:
+//
 // Create Date: 09/25/2023 12:22:07 PM
-// Design Name: 
+// Design Name:
 // Module Name: cpu
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
+// Project Name:
+// Target Devices:
+// Tool Versions:
+// Description:
+//
+// Dependencies:
+//
 // Revision:
 // Revision 0.01 - File Created
 // Additional Comments:
-// 
+//
 //////////////////////////////////////////////////////////////////////////////////
-module cpu(
-    input rst_n,
-    input clk,
-    output reg [31:0] imem_addr,
-    input [31:0] imem_insn,
-    output reg [31:0] dmem_addr,
-    output reg [31:0] dmem_data,
-    output reg dmem_wen
-    );
-    
-  reg [31:0] pc;
-  reg fetch_decode_reg, decode_exec_reg, exec_mem_reg, mem_wriback_reg;
-  reg [31:0] instruction;
-  reg [4:0] rs1,rd,rd_prev;
-  reg [4:0] rs2;
-  reg [2:0] func3;
-  reg [6:0] func7;
-  reg [6:0] opcode;
-  reg [11:0] immediate;
-  reg [31:0] imm;
-  reg signed [31:0] alu_result;
-  reg signed [31:0] regfile [31:0]; // each element in the regfile is 32 bits long, and the reg file holds 32 elements (regfile[31:0])
-  reg [31:0] dmem;
-  reg [15:0] clock_counter;
-  reg stall;
-  reg [31:0]calc_result;
-  reg signed [31:0] srai_imm;
-  reg signed [31:0] rs2_zero; 
-  reg signed [31:0] rs2_sign;
-  integer pc_file, reg_file;
-  parameter addi = 3'b000, slti = 3'b010, sltiu = 3'b011, xori = 3'b100, ori = 3'b110, andi = 3'b111, slli = 3'b001, srli = 3'b101, srai = 3'b101;
-  
-    initial begin
-        pc_file = $fopen("pc_trace.txt", "w");
-        reg_file = $fopen("reg_trace.txt", "w");
+
+module cpu (rst_n, clk, imem_addr, imem_insn, dmem_addr, dmem_data, dmem_wen);
+
+input rst_n, clk;
+input reg [31:0] imem_insn;
+output reg [31:0] imem_addr, dmem_addr;
+inout [31:0] dmem_data;
+output reg dmem_wen;
+
+reg [15:0] clock_counter; // Clock Cycle Counter
+
+reg [31:0] regfile [31:0]; // Register File Creation
+reg stall; // Stall indicator
+
+// ----- FETCH ----- 
+reg [31:0] IF_ID_REG; // pipeline reg takes in pc value
+reg [31:0] pc; 
+reg [31:0] INSTRUCTION; // reg takes the instruction pass to decode stage
+reg [31:0] fetch_imem_insn;
+
+// ----- DECODE -----
+reg [1:0] decode_wb_control; 
+reg [1:0] ID_EX_WB_CTRL;
+reg [2:0] decode_m_control;
+reg [2:0] ID_EX_M_CTRL;
+reg [2:0] decode_ex_control;
+reg [2:0] ID_EX_EX_CTRL;
+
+reg [31:0] decode_if_id_out; // from IF_ID_REG goes into IF_ID_REG
+reg [31:0] ID_EX_REG;
+reg [4:0] decode_rd1; // READ DATA 1  - rs1
+reg [31:0] ID_EX_RD1;
+reg [4:0] decode_rd2; // READ DATA 2  - rs2
+reg [31:0] ID_EX_RD2;
+reg [31:0] decode_rd1_ext;
+reg [31:0] decode_rd2_ext;
+reg [31:0] decode_immediate;
+reg [31:0] ID_EX_IMM;
+reg [3:0] decode_func7_func3;
+reg [3:0] ALU_CTRL_IN;
+reg [4:0] decode_instr_117; // pass all the way to WB stage - rd
+reg [4:0] ID_EX_IMM_WB;
+
+// ----- EXECUTE -----
+reg [1:0] execute_wb_control;
+reg [1:0] EX_MEM_WB_CTRL;
+reg [2:0] execute_m_control;
+reg [2:0] EX_MEM_M_CTRL;
+
+reg [1:0] alu_op_wire; // EX_CONTROL [2:1] goes into ALU_CTRL_IN
+reg alu_src_wire; //signal to mux goes into ALU
+
+// Add Sum
+reg [31:0] execute_add_sum_in; // from ID_EX_REG goes into AddSum
+reg [31:0] execute_immediate_mux_sl1; //from ID_EX_IMM wire that goes into both shiftleft1 and mux
+reg [31:0] execute_sl1_out; // output of shiftleft1 goes into AddSum
+reg [31:0] execute_add_sum_out; // output of AddSum, goes into EX_MEM_ADD_SUM
+reg [31:0] EX_MEM_ADD_SUM;
+
+// ALU
+reg [31:0] execute_alu_rd1; //from ID_EX_RD1, goes into ALU
+reg [31:0] execute_mux_rd2; //from ID_EX_RD2, goes into mux before ALU
+reg [31:0] EX_MEM_RD2; // takes execute_mux_rd2 value
+reg [31:0] execute_mux_out; // output of mux, goes into alu
+reg [0:0] zero_wire; // zero flag from ALU
+reg [0:0] EX_MEM_ZERO;
+reg [31:0] execute_alu_result; // result of ALU
+reg [31:0] EX_MEM_ALU_RESULT;
+
+// ALU SLT Variables
+reg signed [31:0] slt_calc_in1_signed;
+reg [31:0] slt_calc_in1_unsigned;
+reg signed [31:0] slt_calc_in2_signed;
+reg [31:0] slt_calc_in2_unsigned;
+reg signed [31:0] slt_calc_result_signed;
+reg [31:0] slt_calc_result_unsigned;
+
+//ALU Control
+reg [3:0] execute_alu_control_in;
+reg [3:0] execute_alu_control_out;
+
+reg [4:0] execute_imm_wb;
+reg [4:0] EX_MEM_IMM_WB;
+
+//----- MEMORY ACCESS -----
+reg [1:0] mem_wb_control;
+reg [1:0] MEM_WB_WB_CTRL;
+reg mem_m_mem_read;  // signal for data memory block
+reg mem_m_mem_write; // signal for data memory block
+
+reg [31:0] add_sum_mux;
+
+reg mem_branch_zero_in; // from EX_MEM_ZERO
+reg mem_m_branch_in;   // input for branch AND
+reg mem_branch_out_pcsrc; // output for BRANCH AND back to mux in FETCH stage
+
+
+// Data Memory Block
+reg [31:0] mem_alu_result; // from EX_MEM_ALU_RESULT goes into dmem_addr
+reg [31:0] MEM_WB_ALU_RESULT;
+reg [31:0] mem_rd2_write_data; // from EX_MEM_RD2 goes into dmem_write_data
+reg [31:0] mem_read_data_out; // output of data memory block
+reg [31:0] MEM_WB_READ_DATA; // takes in mem_read_data_out
+
+reg [4:0] mem_imm_wb;
+reg [4:0] MEM_WB_IMM_WB;
+
+// ----- WRITE BACK -----
+reg wb_reg_write_control; // RegWrite signal back to decode Register
+reg wb_mem_to_reg_control; // MemToReg signal to mux, determines WriteData in decode Register
+
+reg [31:0] wb_read_data_mux_in; // from MEM_WB_READ_DATA
+reg [31:0] wb_alu_result; // from MEM_WB_ALU_RESULT
+reg [31:0] wb_write_data_mux_out; // output of mux
+
+reg [4:0] wb_write_register_in; // goes back to WriteRegister in decode Register
+
+// ----- PARAMETERS -----
+parameter I_TYPE = 7'b0010011;
+parameter R_TYPE = 7'b0110011;
+parameter S_TYPE = 7'b0100011;
+parameter B_TYPE = 7'b1100011;
+parameter U_TYPE = 7'b0110111;
+parameter J_TYPE = 7'b1101111;
+
+parameter I_TYPE_ALU_OP = 2'b00; 
+parameter R_TYPE_ALU_OP = 2'b10;
+parameter S_TYPE_ALU_OP = 2'b01;
+
+parameter ADD_INSN = 4'b0000;
+parameter SUB_INSN = 4'b0001;
+parameter SLT_INSN = 4'b0010;
+parameter SLTU_INSN = 4'b0011;
+parameter XOR_INSN = 4'b0110;
+parameter OR_INSN = 4'b0111;
+parameter AND_INSN = 4'b1000;
+parameter SLL_INSN = 4'b0100;
+parameter SRL_INSN = 4'b0101;
+parameter SRA_INSN = 4'b1001;
+
+// ----- CLOCK COUNTER AND PC -----
+always @(posedge clk or negedge rst_n) begin
+    if (~rst_n) begin
+        pc <= 32'b0;
+        clock_counter <= 16'b0;
+    end
+    else begin
+        if (mem_branch_out_pcsrc == 1) begin
+            pc = add_sum_mux;
+        end
+        else begin
+            if (stall == 0) begin
+                pc <= pc + 3'b100;
+            end
+        end
+        clock_counter <= clock_counter + 1'b1;
+    end
+end
+
+// ----- STALL -----
+/*
+Check rd with read data 1 and 2 in each stage. If same, then stall, else stall=0
+*/
+always @ * begin
+    if (ID_EX_IMM_WB != 0) begin
+        if (decode_rd1 == ID_EX_IMM_WB) begin
+            stall = 1;
+        end
+        else if (decode_rd2 == ID_EX_IMM_WB) begin
+            stall = 1;
+        end
+        else begin
+            stall = 0;
+        end
+    end
+    if (EX_MEM_IMM_WB != 0) begin
+        if (decode_rd1 == EX_MEM_IMM_WB) begin
+            stall = 1;
+        end
+        else if (decode_rd2 == EX_MEM_IMM_WB) begin
+            stall = 1;
+        end
+        else begin
+            stall = 0;
+        end
+    end
+    if (ID_EX_IMM_WB == 0 && EX_MEM_IMM_WB == 0) begin
+        stall = 0;
+    end
+end
+
+// ----- FETCH STAGE -----
+always @ (*) begin
+    imem_addr = pc;
+    fetch_imem_insn = imem_insn;
+end
+
+always @ (posedge clk or negedge rst_n) begin
+    if (~rst_n) begin
+        IF_ID_REG <= 32'b0;
+        INSTRUCTION <= 32'b0;
+    end
+    else begin
+        if (stall == 0) begin
+            IF_ID_REG <= pc;
+            INSTRUCTION <= fetch_imem_insn;
+        end
+    end
+end
+
+// ----- DECODE STAGE -----
+// breaking down the INSTRUCTION aka instructions
+  /*
+  WB CTRL:  WB[1] = wb_reg_write_control  // Set reg write sig in ID reg
+                1: write to register in ID stage
+                0:
+            WB[0] = wb_mem_to_reg_control // does into mux, set write data reg value in ID stage
+  M CTRL: M[2] = mem_m_branch_in // input to branch AND gate
+                1: signal to mux determines the WriteData (wb_read_data_in or wb_alu_result_mux_in)
+                0:
+          M[1] = mem_m_mem_read // dmem MemRead signal
+                1:
+                0:
+          M[0] = mem_m_mem_write // dmem MemWrite signal
+                1: MemWrite = mem_rd2_write_data xxxxxxxxxxxxxxxxxxx
+  EX CTRL: EX[2:1] = alu_op // goes into ALU CONTROL, determine instruction TYPE
+                I-type: 00
+                R-Type: 10
+                S-Type: 01
+                other : 11 (Jump, Branch, Load)
+           EX[0] = alu_src // signal to mux, determines execute_mux_rd2 value (execute_rd2 or execute_immediate_mux_sl1)
+                1: execute_immediate_mux_sl1
+                0: execute_alu_rd2
+  */
+always @ (*) begin
+    // Decoding the opcode and generating the appropriate control signals
+    // WB signals are: Regwrite, Memtoreg
+    // M signals are: Branch, Memread, Memwrite
+    // EX Signals are: ALUOp[1:0], ALUSrc
+    case (INSTRUCTION[6:0])
+        I_TYPE : begin // I-Type
+            decode_wb_control = 2'b10;
+            decode_m_control = 3'b000;
+            decode_ex_control = 3'b001;
+        end 
+        R_TYPE : begin  // R-Type
+            decode_wb_control = 2'b10;
+            decode_m_control = 3'b000;
+            decode_ex_control = 3'b100;            
+        end
+        default : begin
+            decode_wb_control = 2'b00;
+            decode_m_control = 3'b000;
+            decode_ex_control = 3'b000;
+        end 
+    endcase
+
+    decode_if_id_out = IF_ID_REG;
+
+    decode_rd1 = INSTRUCTION[19:15];
+    decode_rd2 = INSTRUCTION[24:20];
+
+    // Set register x0
+    regfile[5'b0] = 32'b0;
+    // Read data from register file
+    decode_rd1_ext = regfile[decode_rd1];
+    decode_rd2_ext = regfile[decode_rd2];
+
+    case (INSTRUCTION[6:0])
+        I_TYPE : begin
+            // Immediate
+            decode_immediate = { {20{INSTRUCTION[31]}}, INSTRUCTION[31:20] };
+        end
+        S_TYPE : begin
+            // Store
+            decode_immediate = { {20{INSTRUCTION[31]}}, INSTRUCTION[31:25], INSTRUCTION[11:7] };
+        end
+        B_TYPE : begin
+            // Branch
+            decode_immediate = { {19{INSTRUCTION[31]}}, INSTRUCTION[31], INSTRUCTION[7], INSTRUCTION[30:25], INSTRUCTION[11:8], 1'b0 };
+        end
+        U_TYPE : begin
+            // Upper Immediate
+            decode_immediate = { INSTRUCTION[31:12], 12'b0 };
+        end
+        J_TYPE : begin
+            // Jump
+            decode_immediate = { {11{INSTRUCTION[31]}}, INSTRUCTION[31], INSTRUCTION[19:12], INSTRUCTION[20], INSTRUCTION[30:21], 1'b0 };
+        end
+        default: decode_immediate = 32'b0;
+    endcase
+
+    // Other wires
+    decode_func7_func3 = {INSTRUCTION[30], INSTRUCTION[14:12]};
+    decode_instr_117 = INSTRUCTION[11:7];
+end
+
+always @ (negedge clk) begin
+    // Write data to register file
+    if (wb_reg_write_control) begin
+        regfile[wb_write_register_in] = wb_write_data_mux_out;
+    end
+end
+
+always @ (posedge clk or negedge rst_n) begin
+    if (~rst_n) begin
+        ID_EX_WB_CTRL <= 2'b0;
+        ID_EX_M_CTRL <= 3'b0;
+        ID_EX_EX_CTRL <= 3'b0;
+
+        ID_EX_REG <= 32'b0;
+        ID_EX_RD1 <= 32'b0;
+        ID_EX_RD2 <= 32'b0;
+        ID_EX_IMM <= 32'b0;
+        ALU_CTRL_IN <= 4'b0;
+        ID_EX_IMM_WB <= 5'b0;
     end 
-    
-// 16 bit counter
-    always@(posedge clk or negedge rst_n or negedge rst_n)
-    begin
-        if(!rst_n) clock_counter <= 0;
-        else clock_counter <= clock_counter + 1;
-    end
-    
-//Fetch
-    always@(posedge clk or negedge rst_n)
-    begin
-        if(!rst_n)
-        begin
-            pc <= 32'b0;
-            instruction <= 8'hx;
-            imem_addr <= 32'b0;
-            fetch_decode_reg <= 0;
-            stall = 0;
+    else begin
+        if (stall == 0) begin
+            // Control Signals
+            ID_EX_WB_CTRL <= decode_wb_control;
+            ID_EX_M_CTRL <= decode_m_control;
+            ID_EX_EX_CTRL <= decode_ex_control;
+
+            ID_EX_REG <= decode_if_id_out;
+            ID_EX_RD1 <= decode_rd1_ext;
+            ID_EX_RD2 <= decode_rd2_ext;
+            ID_EX_IMM <= decode_immediate;
+
+            ALU_CTRL_IN <= decode_func7_func3;
+            ID_EX_IMM_WB <= decode_instr_117;
         end
-        else
-        begin
-            if(stall == 1)
-            begin
-            // everything stay the same in stall
-                pc_file = $fopen("pc_trace.txt", "a");
-                pc <= pc;
-                instruction <= instruction;
-                imem_addr <= imem_addr;
-                $fdisplay(pc_file, "pc : %h\n", pc);
-                $fdisplay(pc_file, "STALLED\n");
-                $display("pc : %h\n", pc);
-                $display("STALLED\n");
-                fetch_decode_reg <= 0;
-                
-            end
-            else
-            begin
-                pc_file = $fopen("pc_trace.txt", "a");
-                pc <= pc + 4;
-                instruction <= imem_insn;
-                fetch_decode_reg <= 1;
-                imem_addr <= pc;
-                $fdisplay(pc_file, "pc : %h\n", imem_addr);
-                $display("pc : %h\n", imem_addr);
-            end
+        else begin
+            ID_EX_IMM_WB <= 0;
         end
     end
-        
-// Decode
-    always@(posedge clk or negedge rst_n)
-    begin
-        if(!rst_n)
-        begin
-            immediate <= 12'bx;
-            imm <= 32'bx;
-            srai_imm <= 32'bx;
-            rs2_zero <= 32'bx;
-            rs2_sign <= 32'bx;
-            rs1 <= 5'bx;
-            rs2 <= 5'bx;
-            rd <= 5'bx;
-            func3 <= 3'bx;
-            func7 <= 7'bx;
-            opcode <= 7'bx;
-            decode_exec_reg <= 0;
-            stall = 0;
-        end
-        else
-        begin
-            if(stall == 1)
-            begin  
-                immediate <= immediate;       
-                imm <= imm;
-                srai_imm <= srai_imm;
-                rs2_zero <= rs2_zero;
-                rs2_sign <= rs2_sign;
-                rs2 <= rs2;
-                rs1 <= rs1;
-                rd <= rd;
-                func7 <= func7;
-                func3 <= func3;
-                opcode <= opcode;
-                rd_prev <= rd_prev;
-                decode_exec_reg <= 0;              
-                if(rs1 == rd_prev || rs2 == rd_prev) begin 
-		          stall = 1;
-		        end
-//		        else if (rs2 == rd_prev) begin
-//		          stall = 1;
-//		        end
-                else begin 
-		          stall = 0; 
-		        end
-            end           
-            else
-            begin
-                decode_exec_reg <= 1;
-                if((instruction != 8'hx) || fetch_decode_reg)
-                begin
-                    opcode <= instruction[6:0];
-                    rd <= instruction[11:7];
-                    func3 <= instruction[14:12];
-                    rs1 <= instruction[19:15];
-                    rs2 <= instruction[24:20];
-                    func7 <= instruction[31:25];
-                    immediate <= instruction[31:20];
-                    imm <= {{20{instruction[31]}},{instruction[31:20]}};
-                    rs2_sign <= {{27{instruction[24]}}, {instruction[24:20]}};
-                    rs2_zero <= {27'b0, {instruction[24:20]}};
-                    srai_imm <= {{27{instruction[24]}},{instruction[24:20]}};                   
-                    if((rs1 == rd_prev) || (rs2 == rd_prev)) begin
-		              stall = 1;
-		            end
-//		            else if (rs2 === rd_prev) begin
-//		              stall = 1;
-//		            end
-                    else begin 
-		              stall = 0;
-	                end
+end
+
+
+// ----- EXECUTE STAGE -----
+always @ (*) begin
+    execute_wb_control = ID_EX_WB_CTRL;
+    execute_m_control = ID_EX_M_CTRL;
+    alu_op_wire = ID_EX_EX_CTRL[2:1];
+    alu_src_wire = ID_EX_EX_CTRL[0];
+
+    execute_add_sum_in = ID_EX_REG;
+    execute_immediate_mux_sl1 = ID_EX_IMM;
+    execute_sl1_out = execute_immediate_mux_sl1 << 1;
+    execute_add_sum_out = execute_add_sum_in + execute_sl1_out;
+
+    execute_alu_rd1 = ID_EX_RD1;
+    execute_mux_rd2 = ID_EX_RD2;
+    if (alu_src_wire == 1) begin
+        execute_alu_result = execute_immediate_mux_sl1;
+    end
+    else begin
+        execute_alu_result = execute_mux_rd2;
+    end
+
+    execute_alu_control_in = ALU_CTRL_IN;
+    
+    /*
+	ALU Control
+	0000	ADD
+	0001	SUB
+	0010	SLT
+	0011	SLTU
+	0110	XOR
+	0111	OR
+	1000	AND
+	0100	SLL
+	0101	SRL
+	1001	SRA
+	*/
+
+    // ALU Control Calculation
+    case (alu_op_wire)
+        I_TYPE_ALU_OP : begin // I-Type instruction
+            case (execute_alu_control_in[2:0])
+                3'b000: begin
+                    execute_alu_control_out = ADD_INSN; 
                 end
-            end
-            $display("--------------------------");
-            $display("CC: %d", clock_counter);
-            $display("opcode: %b", opcode);
-            $display("rs1: %b", rs1);
-            $display("rd: %d", rd);
-            $display("func3: %b", func3);
-          //$display("stall: %d; decode_exec_reg: %d", stall, decode_exec_reg);
-        end
-    end
-    
-//    wire [31:0] rs1_ext, rs2_ext;    
-//    assign rs1_ext = {27'b0, rs1};
-//    assign rs2_ext = {27'b0, rs2};
-    
-// Execute 
-    always@(posedge clk or negedge rst_n)
-    begin
-        if(!rst_n)
-        begin
-            alu_result <= 32'bx;
-            exec_mem_reg <= 0;
-        end
-        else
-        begin
-            begin
-                exec_mem_reg <= decode_exec_reg;
-                rd_prev <= rd;
-                if(decode_exec_reg)
-                begin
-                    if(regfile[rs1] === 32'bxxxxx) begin //check condition for i-type operatrions
-                        if (opcode == 7'b0010011) begin
-                            // addi
-                            if (func3 == addi) begin                          
-                                regfile[rd] <= imm + rs1;
-                                alu_result <= imm + rs1;
-                            end
-                            // xori
-                            else if (func3 == xori) begin
-                                regfile[rd] <= imm ^ rs1;
-                                alu_result <= imm ^ rs1;
-                            end
-                            // ori
-                            else if (func3 == ori) begin
-                                regfile[rd] <= imm | rs1;
-                                alu_result <= imm | rs1;
-                            end
-                            // andi
-                            else if(func3 == andi) begin
-                                regfile[rd] <= imm & rs1;
-                                alu_result <= imm & rs1;
-                            end
-                            // slti set less than imm
-                            else if(func3 == slti) begin
-                                regfile[rd] <= (rs1 < imm)?1:0;
-                                alu_result <= (rs1 < imm)?1:0;
-                            end
-                            //sltiu set less than imm (u) zero extend 
-                            else if(func3 == sltiu) begin
-                                regfile[rd] <= (rs1 < imm)?1:0;
-                                alu_result <= (rs1 < imm)?1:0;
-                            end
-                            // slli shift left logical imm[5:11]=0x00  -> rd = rs1 << imm[0:4]
-                            else if(func3 == slli) begin                         
-                                regfile[rd] <= (rs1 << imm[4:0]);
-                                alu_result <= (rs1 << imm[4:0]);
-                            end
-                            // srli shift right logical  rd = rs1 >> imm[0:4]
-                            else if(func3 == srli && imm[11:5] == 7'h00) begin
-                                regfile[rd] <= (rs1 >> imm[4:0]);
-                                alu_result <= (rs1 >> imm[4:0]);
-                            end
-                            // shift right alrith imm
-                            else if(func3 == srai && imm[11:5] == 7'h20) begin                        
-                                regfile[rd] = rs1 >>> srai_imm;
-                                alu_result = rs1 >>> srai_imm;
-                            end
-                        end
-                        if (opcode == 7'b0110011) begin
-                            // add
-                            if (func3 == 3'h0 && func7 == 7'h00) begin
-                                regfile[rd] <= rs1 + rs2;
-                                alu_result <= rs1 + rs2;
-                            end
-                            // sub
-                            else if (func3 == 3'h0 && func7 == 7'h20) begin
-                                regfile[rd] <= rs1 - rs2;
-                                alu_result <= rs1 - rs2;
-                            end
-                            // xor
-                            else if (func3 == 3'h4 && func7 == 7'h00) begin
-                                regfile[rd] <= rs1 ^ rs2;
-                                alu_result <= rs1 ^ rs2;
-                            end
-                            // or
-                            else if (func3 == 3'h6 && func7 == 7'h00) begin
-                                regfile[rd] <= rs1 | rs2;
-                                alu_result <= rs1 | rs2;
-                            end
-                            // and
-                            else if (func3 == 3'h7 && func7 == 7'h00) begin
-                                regfile[rd] <= rs1 & rs2;
-                                alu_result <= rs1 & rs2;
-                            end
-                            // sll
-                            else if (func3 == 3'h1 && func7 == 7'h00) begin
-                                regfile[rd] <= (rs1 << rs2);
-                                alu_result <= (rs1 << rs2);
-                            end
-                            //srl
-                            else if(func3 == 3'h5 && func7 == 7'h00) begin
-                                regfile[rd] <= (rs1 >> rs2);
-                                alu_result <= (rs1 >> rs2);
-                            end
-                            // sra arith right shift
-                            else if (func3 == 3'b0101 && func7 == 7'b0100000) begin
-                                regfile[rd] <= rs1 >>> rs2;
-                                alu_result <= rs1 >>> rs2;
-                            end
-                            // slt
-                            else if (func3 == 3'h2 && func7 == 7'h00) begin
-                                regfile[rd] <= (rs1 < rs2)?1:0;
-                                alu_result <= (rs1 < rs2)?1:0;
-                            end
-                            // sltu
-                            else if (func3 ==3'h3 && func7 == 7'h00) begin
-                                regfile[rd] <= (rs1 < rs2)?1:0;
-                                alu_result <= (rs1 < rs2)?1:0;
-                            end
-                        end
+                3'b010: begin
+                    execute_alu_control_out = SLT_INSN; 
+                end
+                3'b011: begin
+                    execute_alu_control_out = SLTU_INSN; 
+                end
+                3'b100: begin
+                    execute_alu_control_out = XOR_INSN; 
+                end
+                3'b110: begin
+                    execute_alu_control_out = OR_INSN; 
+                end
+                3'b111: begin
+                    execute_alu_control_out = AND_INSN;
+                end
+                3'b001: begin
+                    if (execute_alu_control_in[3] == 0) begin
+                        execute_alu_control_out = SLL_INSN; 
                     end
-                    else begin
-                        if (opcode == 7'b0010011) begin
-                            if (func3 == addi)begin
-                                regfile[rd] <= imm + regfile[rs1];
-                                alu_result <= imm + regfile[rs1];
-                            end
-                            else if (func3 == xori) begin
-                                regfile[rd] <= imm ^ regfile[rs1];  // remember to change all the rs1 here to regfile[rs1]
-                                alu_result <= imm ^ regfile[rs1];
-                            end
-                            else if (func3 == ori) begin
-                                regfile[rd] <= imm | regfile[rs1];
-                                alu_result <= imm | regfile[rs1];
-                            end
-                            else if(func3 == andi) begin
-                                regfile[rd] <= imm & regfile[rs1];
-                                alu_result <= imm & regfile[rs1];
-                            end
-                            else if(func3 == slti) begin
-                                regfile[rd] <= (regfile[rs1] < imm)?1:0;
-                                alu_result <= (regfile[rs1] < imm)?1:0;
-                            end
-                            // need to fix: sltiu is zero extend
-                            else if(func3 == sltiu) begin
-                                regfile[rd] <= (regfile[rs1] < imm)?1:0;
-                                alu_result <= (regfile[rs1] < imm)?1:0;
-                            end
-                            else if(func3 == slli) begin
-                                regfile[rd] <= (regfile[rs1] << imm[4:0]);
-                                alu_result <= (regfile[rs1] << imm[4:0]);
-                            end
-                            else if(func3 == srli && imm[11:5] == 7'h00) begin // logical = unsigned
-                                regfile[rd] <= (regfile[rs1] >> imm[4:0]);
-                                alu_result <= (regfile[rs1] >> imm[4:0]);
-                            end
-                            else if(func3 == srai && imm[11:5] == 7'h20) begin
-                                regfile[rd] = regfile[rs1] >>> srai_imm;
-                                alu_result = regfile[rs1] >>> srai_imm;
-                            end
-                        end
-                        if (opcode == 7'b0110011) begin
-                            // add
-                            if (func3 == 3'h0 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] + regfile[rs2]);
-                                alu_result <= regfile[rs1] + regfile[rs2];
-                            end
-                            // sub
-                            else if (func3 == 3'h0 && func7 == 7'h20) begin
-                                regfile[rd] <= (regfile[rs1] - regfile[rs2]);
-                                alu_result <= regfile[rs1] - regfile[rs2];
-                            end
-                            // xor
-                            else if (func3 == 3'h4 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] ^ regfile[rs2]);
-                                alu_result <= (regfile[rs1] ^ regfile[rs2]);
-                            end
-                            // or
-                            else if (func3 == 3'h6 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] | regfile[rs2]);
-                                alu_result <= (regfile[rs1] | regfile[rs2]);
-                            end
-                            // and
-                            else if (func3 == 3'h7 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] & regfile[rs2]);
-                                alu_result <= (regfile[rs1] & regfile[rs2]);
-                            end
-                            // sll
-                            else if (func3 == 3'h1 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] << rs2);
-                                alu_result <= (regfile[rs1] << rs2);
-                            end
-                            //srl
-                            else if(func3 == 3'h5 && func7 == 7'h00) begin
-                                regfile[rd] <= regfile[rs1] >> rs2;
-                                alu_result <= regfile[rs1] >> rs2;
-                            end
-                            // sra arith right shift
-                            else if (func3 == 3'b0101 && func7 == 7'b0100000) begin
-                                regfile[rd] <= regfile[rs1] >>> regfile[rs2];
-                                alu_result <= regfile[rs1] >>> regfile[rs2];
-                            end
-                            // slt
-                            else if (func3 == 3'h2 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] < regfile[rs2])?1:0;
-                                alu_result <= (regfile[rs1] < regfile[rs2])?1:0;
-                            end
-                            // sltu - zero extend
-                            else if (func3 == 3'h3 && func7 == 7'h00) begin
-                                regfile[rd] <= (regfile[rs1] < regfile[rs2])?1:0;
-                                alu_result <= (regfile[rs1] < regfile[rs2])?1:0;
-                            end
-                        end
+                end
+                3'b101: begin
+                    if (execute_alu_control_in[3] == 0) begin
+                        execute_alu_control_out = SRL_INSN; 
                     end
-                    $display("alu result: %d", alu_result);
-                    $display("imm[4:0]: %b", imm[4:0]);
-                    $display("srai_imm: %b", srai_imm);
+                    else if (execute_alu_control_in[3] == 1) begin
+                        execute_alu_control_out = SRA_INSN; 
+                    end
                 end
-                if(stall)
-                begin
-                    rd_prev <= 5'bxxxxx;
+            endcase
+        end
+        S_TYPE_ALU_OP : begin // Sets to subtract and test if zero for beq
+            execute_alu_control_out = 4'b0001;
+        end
+        R_TYPE_ALU_OP : begin // Sets depending on funct7 and funct3 fields
+            case (execute_alu_control_in) 
+                4'b0000 : begin
+                    execute_alu_control_out = ADD_INSN; 
                 end
-            end
+                4'b1000 : begin
+                    execute_alu_control_out = SUB_INSN; 
+                end
+                4'b0001 : begin
+                    execute_alu_control_out = SLL_INSN; 
+                end
+                4'b0010 : begin
+                    execute_alu_control_out = SLT_INSN; 
+                end
+                4'b0011 : begin
+                    execute_alu_control_out = SLTU_INSN; 
+                end
+                4'b0100 : begin
+                    execute_alu_control_out = XOR_INSN; 
+                end
+                4'b0101 : begin
+                    execute_alu_control_out = SRL_INSN; 
+                end
+                4'b1101 : begin
+                    execute_alu_control_out = SRA_INSN; 
+                end
+                4'b0110 : begin
+                    execute_alu_control_out = OR_INSN; 
+                end
+                4'b0111 : begin
+                    execute_alu_control_out = AND_INSN; // R-Type AND
+                end   
+            endcase
         end
+    endcase
+
+    // ALU Calculation
+    case (execute_alu_control_out)
+        ADD_INSN : begin // Add Function
+            execute_alu_result = execute_alu_rd1 + execute_alu_result;
+        end
+        SUB_INSN: begin // Subtract Function
+            execute_alu_result = execute_alu_rd1 - execute_alu_result;
+        end
+        AND_INSN: begin // AND Function
+            execute_alu_result = execute_alu_rd1 & execute_alu_result;
+        end
+        OR_INSN: begin // OR Function
+            execute_alu_result = execute_alu_rd1 |  execute_alu_result;
+        end
+        XOR_INSN : begin // XOR Function
+            execute_alu_result = execute_alu_rd1 ^ execute_alu_result;
+        end
+        SLL_INSN: begin // SLL Function
+            execute_alu_result = execute_alu_rd1 << execute_alu_result[4:0];
+        end
+        SRL_INSN: begin // SRL Function
+            execute_alu_result = execute_alu_rd1 >> execute_alu_result[4:0];
+        end
+        SRA_INSN: begin // SRA Function
+            execute_alu_result = $signed(execute_alu_rd1) >>> execute_alu_result[4:0];
+        end
+        SLT_INSN: begin // SLT Function
+            slt_calc_in1_signed = execute_alu_rd1;
+            slt_calc_in2_signed = execute_alu_result;
+            slt_calc_result_signed = slt_calc_in1_signed - slt_calc_in2_signed;
+            execute_alu_result = {31'b0, slt_calc_result_signed[31]};
+        end
+        SLTU_INSN: begin // SLTU Function
+            slt_calc_in1_unsigned = execute_alu_rd1;
+            slt_calc_in2_unsigned = execute_alu_result;
+            slt_calc_result_unsigned = slt_calc_in1_unsigned - slt_calc_in2_unsigned;   // compare as unsigned
+            execute_alu_result = {31'b0, slt_calc_result_unsigned[31]};
+        end
+    endcase
+
+    // Zero signal calculation
+    if (execute_alu_result == 4'b0) begin
+        zero_wire = 1;
     end
-    
-   // Memory Access
-    always@(posedge clk or negedge rst_n)
-    begin
-        if(!rst_n)
-        begin
-            dmem <= 32'bx;
-            mem_wriback_reg <= 0;
-        end
-        else
-        begin
-            mem_wriback_reg <= exec_mem_reg;
-            if(exec_mem_reg)
-            begin
-                dmem <= alu_result;
-                reg_file = $fopen("reg_trace.txt", "a");
-                $fdisplay(reg_file, "register value: %d\n", rd,dmem);
-                $display("Register value: %d", dmem);
-                $display("Register: %d", rd);
-            end
-        end
+    else begin
+        zero_wire = 0;
     end
-    
-    // Write Back
-    always@(posedge clk or negedge rst_n)
-    begin
-        if(!rst_n)
-        begin
-            dmem_wen <= 0;
-        end
-        else
-        begin
-            dmem_wen <= mem_wriback_reg;
-            if(mem_wriback_reg)
-            begin
-                dmem_addr <= dmem_addr + 4;
-            end
-        end
+
+    execute_imm_wb = ID_EX_IMM_WB;
+end
+
+always @ (posedge clk or negedge rst_n) begin
+    if (~rst_n) begin
+        EX_MEM_WB_CTRL <= 2'b0;
+        EX_MEM_M_CTRL <= 3'b0;
+
+        EX_MEM_ADD_SUM <= 32'b0;
+
+        EX_MEM_ZERO <= 1'b0;
+        EX_MEM_ALU_RESULT <= 32'b0;
+
+        EX_MEM_RD2 <= 32'b0;
+        EX_MEM_IMM_WB <= 5'b0;
+    end else begin
+        // Control Signals
+        EX_MEM_WB_CTRL <= execute_wb_control;
+        EX_MEM_M_CTRL <= execute_m_control;
+
+        // Address Sum
+        EX_MEM_ADD_SUM <= execute_add_sum_out;
+
+        // ALU
+        EX_MEM_ZERO <= zero_wire;
+        EX_MEM_ALU_RESULT <= execute_alu_result;
+
+        EX_MEM_RD2 <= execute_mux_rd2;
+        EX_MEM_IMM_WB <= execute_imm_wb;
     end
+end
+
+// ----- MEMORY ACCESS STAGE -----
+always @ (*) begin
+    // Control Signals
+    mem_wb_control = EX_MEM_WB_CTRL;
+    mem_m_branch_in = EX_MEM_M_CTRL[2];
+    mem_m_mem_read = EX_MEM_M_CTRL[1];
+    mem_m_mem_write = EX_MEM_M_CTRL[0];
+
+    // Branch Adder that wraps back to first mux in IF stage
+    add_sum_mux = EX_MEM_ADD_SUM;
+
+    // And gate for pcsrc
+    mem_branch_out_pcsrc = mem_m_branch_in + mem_branch_zero_in;
+
+    // Data Memory Block
+    mem_alu_result = EX_MEM_ALU_RESULT;
+    mem_rd2_write_data = EX_MEM_RD2;
+
+    // Supply address to external memory
+    dmem_addr = mem_alu_result;
+
+    // Supply read/write signal to external memory
+    dmem_wen = mem_m_mem_write;
+
+    mem_read_data_out = dmem_data;
+
+    mem_imm_wb = EX_MEM_IMM_WB;
+end
+
+// Continuous assignment for tri-state buffer
+assign dmem_data = mem_m_mem_write ? mem_rd2_write_data : 32'bz; // if this instruction is a store, then we supply the data to store to the external memory
+
+// ----- WRITE BACK STAGE -----
+always @ (posedge clk or negedge rst_n) begin
+    if (~rst_n) begin
+        MEM_WB_WB_CTRL <= 2'b0;
+
+        MEM_WB_READ_DATA <= 32'b0;
+        MEM_WB_ALU_RESULT <= 32'b0;
+
+        MEM_WB_IMM_WB <= 5'b0;
+    end else begin
+        // Control Signals
+        MEM_WB_WB_CTRL <= mem_wb_control;
+
+        // Write Back Mux
+        MEM_WB_READ_DATA <= mem_read_data_out;
+        MEM_WB_ALU_RESULT <= mem_alu_result;
     
+        // Write Register
+        MEM_WB_IMM_WB <= mem_imm_wb;
+    end
+end
+
+always @ (*) begin
+    // Control Signals
+    wb_reg_write_control = MEM_WB_WB_CTRL[1];
+    wb_mem_to_reg_control = MEM_WB_WB_CTRL[0];
+
+    // Write Back Mux
+    wb_read_data_mux_in = MEM_WB_READ_DATA;
+    wb_alu_result = MEM_WB_ALU_RESULT;
+    wb_write_data_mux_out = wb_mem_to_reg_control ? wb_read_data_mux_in : wb_alu_result;
+
+    wb_write_register_in = MEM_WB_IMM_WB;
+end
 endmodule
