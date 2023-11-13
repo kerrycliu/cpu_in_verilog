@@ -143,6 +143,20 @@ parameter B_TYPE = 7'b1100011;
 parameter U_TYPE = 7'b0110111;
 parameter J_TYPE = 7'b1101111;
 
+parameter I_TYPE_ALU_OP = 2'b00; 
+parameter R_TYPE_ALU_OP = 2'b10;
+parameter B_TYPE_ALU_OP = 2'b01;
+
+parameter ADD_INSN = 4'b0000;
+parameter SUB_INSN = 4'b0001;
+parameter SLT_INSN = 4'b0010;
+parameter SLTU_INSN = 4'b0011;
+parameter XOR_INSN = 4'b0110;
+parameter OR_INSN = 4'b0111;
+parameter AND_INSN = 4'b1000;
+parameter SLL_INSN = 4'b0100;
+parameter SRL_INSN = 4'b0101;
+parameter SRA_INSN = 4'b1001;
 // ----- CLOCK COUNTER AND PC -----
 always @(posedge clk or negedge rst_n) begin
     if (~rst_n) begin
@@ -224,7 +238,7 @@ end
                 1: signal to mux determines the WriteData (wb_read_data_in or wb_alu_result_mux_in)
                 0:
           M[1] = mem_m_mem_read // dmem MemRead signal
-                1:
+                1: read frm mem in dmem block
                 0:
           M[0] = mem_m_mem_write // dmem MemWrite signal
                 1: MemWrite = mem_rd2_write_data xxxxxxxxxxxxxxxxxxx
@@ -243,12 +257,12 @@ always @ (*) begin
     // M signals are: Branch, Memread, Memwrite
     // EX Signals are: ALUOp[1:0], ALUSrc
     case (INSTRUCTION[6:0])
-        I_TYPE : begin // I-Type
+        I_TYPE : begin
             decode_wb_control = 2'b10;
             decode_m_control = 3'b000;
             decode_ex_control = 3'b001;
         end 
-        R_TYPE : begin  // R-Type
+        R_TYPE : begin
             decode_wb_control = 2'b10;
             decode_m_control = 3'b000;
             decode_ex_control = 3'b100;            
@@ -265,37 +279,29 @@ always @ (*) begin
     decode_rd1 = INSTRUCTION[19:15];
     decode_rd2 = INSTRUCTION[24:20];
 
-    // Set register x0
     regfile[5'b0] = 32'b0;
-    // Read data from register file
     decode_rd1_ext = regfile[decode_rd1];
     decode_rd2_ext = regfile[decode_rd2];
 
     case (INSTRUCTION[6:0])
         I_TYPE : begin
-            // Immediate
             decode_immediate = { {20{INSTRUCTION[31]}}, INSTRUCTION[31:20] };
         end
         S_TYPE : begin
-            // Store
             decode_immediate = { {20{INSTRUCTION[31]}}, INSTRUCTION[31:25], INSTRUCTION[11:7] };
         end
         B_TYPE : begin
-            // Branch
             decode_immediate = { {19{INSTRUCTION[31]}}, INSTRUCTION[31], INSTRUCTION[7], INSTRUCTION[30:25], INSTRUCTION[11:8], 1'b0 };
         end
         U_TYPE : begin
-            // Upper Immediate
             decode_immediate = { INSTRUCTION[31:12], 12'b0 };
         end
         J_TYPE : begin
-            // Jump
             decode_immediate = { {11{INSTRUCTION[31]}}, INSTRUCTION[31], INSTRUCTION[19:12], INSTRUCTION[20], INSTRUCTION[30:21], 1'b0 };
         end
         default: decode_immediate = 32'b0;
     endcase
 
-    // Other wires
     decode_func7_func3 = {INSTRUCTION[30], INSTRUCTION[14:12]};
     decode_instr_117 = INSTRUCTION[11:7];
 end
@@ -322,7 +328,6 @@ always @ (posedge clk or negedge rst_n) begin
     end 
     else begin
         if (stall == 0) begin
-            // Control Signals
             ID_EX_WB_CTRL <= decode_wb_control;
             ID_EX_M_CTRL <= decode_m_control;
             ID_EX_EX_CTRL <= decode_ex_control;
@@ -367,113 +372,113 @@ always @ (*) begin
 
     // ALU Control Calculation
     case (alu_op_wire)
-        2'b00 : begin // I-Type instruction
+        I_TYPE_ALU_OP : begin
             case (execute_alu_control_in[2:0])
                 3'b000: begin
-                    execute_alu_control_out = 4'b0000; // I-Type ADD
+                    execute_alu_control_out = ADD_INSN;
                 end
                 3'b010: begin
-                    execute_alu_control_out = 4'b1000; // I-Type SLTI
+                    execute_alu_control_out = SLT_INSN;
                 end
                 3'b011: begin
-                    execute_alu_control_out = 4'b1001; // I-Type SLTIU
+                    execute_alu_control_out = SLTU_INSN;
                 end
                 3'b100: begin
-                    execute_alu_control_out = 4'b0100; // I-Type XORI
+                    execute_alu_control_out = XOR_INSN; 
                 end
                 3'b110: begin
-                    execute_alu_control_out = 4'b0011; // I-Type ORI
+                    execute_alu_control_out = OR_INSN;
                 end
                 3'b111: begin
-                    execute_alu_control_out = 4'b0010; // I-Type ANDI
+                    execute_alu_control_out = AND_INSN;
                 end
                 3'b001: begin
                     if (execute_alu_control_in[3] == 0) begin
-                        execute_alu_control_out = 4'b0101; // I-Type SLLI
+                        execute_alu_control_out = SLL_INSN;
                     end
                 end
                 3'b101: begin
                     if (execute_alu_control_in[3] == 0) begin
-                        execute_alu_control_out = 4'b0110; // I-Type SRLI
+                        execute_alu_control_out = SRL_INSN;
                     end
                     else if (execute_alu_control_in[3] == 1) begin
-                        execute_alu_control_out = 4'b0111; // I-Type SRAI
+                        execute_alu_control_out = SRA_INSN;
                     end
                 end
             endcase
         end
-        2'b01 : begin // Sets to subtract and test if zero for beq
-            execute_alu_control_out = 4'b0001;
-        end
-        2'b10 : begin // Sets depending on funct7 and funct3 fields
-            case (execute_alu_control_in) // R-Type Instruction Decoding
+        R_TYPE_ALU_OP : begin
+            case (execute_alu_control_in)
                 4'b0000 : begin
-                    execute_alu_control_out = 4'b0000; // R-Type ADD
+                    execute_alu_control_out = ADD_INSN;
                 end
                 4'b1000 : begin
-                    execute_alu_control_out = 4'b0001; // R-Type Subtract
+                    execute_alu_control_out = SUB_INSN;
                 end
                 4'b0001 : begin
-                    execute_alu_control_out = 4'b0101; // R-Type SLL
+                    execute_alu_control_out = SLL_INSN;
                 end
                 4'b0010 : begin
-                    execute_alu_control_out = 4'b1000; // R-Type SLT
+                    execute_alu_control_out = SLT_INSN;
                 end
                 4'b0011 : begin
-                    execute_alu_control_out = 4'b1001; // R-Type SLTU
+                    execute_alu_control_out = SLTU_INSN;
                 end
                 4'b0100 : begin
-                    execute_alu_control_out = 4'b0100; // R-Type XOR
+                    execute_alu_control_out = XOR_INSN; 
                 end
                 4'b0101 : begin
-                    execute_alu_control_out = 4'b0110; // R-Type SRL
+                    execute_alu_control_out = SRL_INSN; 
                 end
                 4'b1101 : begin
-                    execute_alu_control_out = 4'b0111; // R-Type SRA
+                    execute_alu_control_out = SRA_INSN; 
                 end
                 4'b0110 : begin
-                    execute_alu_control_out = 4'b0011; // R-Type OR
+                    execute_alu_control_out = OR_INSN; 
                 end
                 4'b0111 : begin
-                    execute_alu_control_out = 4'b0010; // R-Type AND
+                    execute_alu_control_out = AND_INSN;
                 end   
             endcase
+        end
+        B_TYPE_ALU_OP : begin // if zero for beq
+            execute_alu_control_out = SUB_INSN;
         end
     endcase
 
     // ALU Calculation
     case (execute_alu_control_out)
-        4'b0000 : begin // Add Function
+        ADD_INSN: begin // Add Function
             execute_alu_result = execute_alu_rd1 + execute_alu_result;
         end
-        4'b0001 : begin // Subtract Function
+        SUB_INSN: begin // Subtract Function
             execute_alu_result = execute_alu_rd1 - execute_alu_result;
         end
-        4'b0010 : begin // AND Function
+        AND_INSN: begin // AND Function
             execute_alu_result = execute_alu_rd1 & execute_alu_result;
         end
-        4'b0011 : begin // OR Function
+        OR_INSN: begin // OR Function
             execute_alu_result = execute_alu_rd1 |  execute_alu_result;
         end
-        4'b0100 : begin // XOR Function
+        XOR_INSN : begin // XOR Function
             execute_alu_result = execute_alu_rd1 ^ execute_alu_result;
         end
-        4'b0101: begin // SLL Function
+        SLL_INSN: begin // SLL Function
             execute_alu_result = execute_alu_rd1 << execute_alu_result[4:0];
         end
-        4'b0110: begin // SRL Function
+        SRL_INSN: begin // SRL Function
             execute_alu_result = execute_alu_rd1 >> execute_alu_result[4:0];
         end
-        4'b0111: begin // SRA Function
+        SRA_INSN: begin // SRA Function
             execute_alu_result = $signed(execute_alu_rd1) >>> execute_alu_result[4:0];
         end
-        4'b1000: begin // SLT Function
+        SLT_INSN: begin // SLT Function
             slt_calc_in1_signed = execute_alu_rd1;
             slt_calc_in2_signed = execute_alu_result;
             slt_calc_result_signed = slt_calc_in1_signed - slt_calc_in2_signed;
             execute_alu_result = {31'b0, slt_calc_result_signed[31]};
         end
-        4'b1001: begin // SLTU Function
+        SLTU_INSN: begin // SLTU Function
             slt_calc_in1_unsigned = execute_alu_rd1;
             slt_calc_in2_unsigned = execute_alu_result;
             slt_calc_result_unsigned = slt_calc_in1_unsigned - slt_calc_in2_unsigned;   // compare as unsigned
@@ -492,7 +497,6 @@ always @ (*) begin
     execute_imm_wb = ID_EX_IMM_WB;
 end
 
-//-------------------------- EX/MEM Register Logic ? ------------------------------------------------------------------------------------------------
 always @ (posedge clk or negedge rst_n) begin
     if (~rst_n) begin
         EX_MEM_WB_CTRL <= 2'b0;
@@ -522,71 +526,55 @@ always @ (posedge clk or negedge rst_n) begin
     end
 end
 
-//-------------------------- MEM Stage Logic ------------------------------------------------------------------------------------------------
+// ----- MEMORY ACCESS STAGE -----
 always @ (*) begin
-    // Control Signals
     mem_wb_control = EX_MEM_WB_CTRL;
     mem_m_branch_in = EX_MEM_M_CTRL[2];
     mem_m_mem_read = EX_MEM_M_CTRL[1];
     mem_m_mem_write = EX_MEM_M_CTRL[0];
+    add_sum_mux = EX_MEM_ADD_SUM; // from AddSum Reg to mux in fetch stage, determines pc
 
-    // Branch Adder that wraps back to first mux in IF stage
-    add_sum_mux = EX_MEM_ADD_SUM;
-
-    // And gate for pcsrc
+    // And Branch gate for pcsrc
     mem_branch_out_pcsrc = mem_m_branch_in + mem_branch_zero_in;
 
-    // Data Memory Block
-    mem_alu_result = EX_MEM_ALU_RESULT;
-    mem_rd2_write_data = EX_MEM_RD2;
+    mem_alu_result = EX_MEM_ALU_RESULT; //from ALU_RESULT reg, goes into address in dmem
+    mem_rd2_write_data = EX_MEM_RD2; // from RD2, goes into WriteData in dmem
 
-    // Supply address to external memory
-    dmem_addr = mem_alu_result;
-
-    // Supply read/write signal to external memory
-    dmem_wen = mem_m_mem_write;
-
-    mem_read_data_out = dmem_data;
-
-    mem_imm_wb = EX_MEM_IMM_WB;
+    dmem_addr = mem_alu_result; // dmem_address takes in alu_result
+    dmem_wen = mem_m_mem_write; // WemWrite signal in dmem takes in m[0] control signal
+    mem_read_data_out = dmem_data; // output of dmem block, goes into READ_DATA REG
+    mem_imm_wb = EX_MEM_IMM_WB; // pass rd along
 end
 
-// Continuous assignment for tri-state buffer
-assign dmem_data = mem_m_mem_write ? mem_rd2_write_data : 32'bz; // if this instruction is a store, then we supply the data to store to the external memory
+// If instruction is STORE, then dmem_data = mem_rd2_write_data, else set to z.
+assign dmem_data = mem_m_mem_write ? mem_rd2_write_data : 32'bz;
 
-//-------------------------- MEM/WB Register Logic ? ------------------------------------------------------------------------------------------------
 always @ (posedge clk or negedge rst_n) begin
     if (~rst_n) begin
         MEM_WB_WB_CTRL <= 2'b0;
-
         MEM_WB_READ_DATA <= 32'b0;
         MEM_WB_ALU_RESULT <= 32'b0;
-
         MEM_WB_IMM_WB <= 5'b0;
-    end else begin
-        // Control Signals
+    end 
+    else begin
         MEM_WB_WB_CTRL <= mem_wb_control;
-
-        // Write Back Mux
         MEM_WB_READ_DATA <= mem_read_data_out;
         MEM_WB_ALU_RESULT <= mem_alu_result;
-    
-        // Write Register
         MEM_WB_IMM_WB <= mem_imm_wb;
     end
 end
 
-//-------------------------- Write Back Stage Logic ------------------------------------------------------------------------------------------------
+// ----- WRITE BACK STAGE -----
 always @ (*) begin
-    // Control Signals
-    wb_reg_write_control = MEM_WB_WB_CTRL[1];
-    wb_mem_to_reg_control = MEM_WB_WB_CTRL[0];
-
-    // Write Back Mux
-    wb_read_data_mux_in = MEM_WB_READ_DATA;
+    wb_reg_write_control = MEM_WB_WB_CTRL[1]; // RegWrite signal to Registers in decode
+    wb_mem_to_reg_control = MEM_WB_WB_CTRL[0]; // MemtoReg signal to mux in WB
+    
+    wb_read_data_mux_in = MEM_WB_READ_DATA; 
     wb_alu_result = MEM_WB_ALU_RESULT;
+    // WriteData input to Register
+    	// if mem_to_reg, then read_data; else alu_result.
     wb_write_data_mux_out = wb_mem_to_reg_control ? wb_read_data_mux_in : wb_alu_result;
-
+    // WriteRegister = inst[7:11] passed all they way along. rd
     wb_write_register_in = MEM_WB_IMM_WB;
 end
 endmodule
