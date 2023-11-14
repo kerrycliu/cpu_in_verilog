@@ -11,15 +11,16 @@ long int regfile[32] = {0};
 int32_t pc = 0;
 uint8_t memory[4096] = {0};
 
+/*
 int32_t fetch_imem_insn(int32_t imem_addr){
 	int32_t imem_insn;
-	/*
+	
 	Copy Block of Memory
 	memcpy(*destination, *source, size_t num)
 		destination: pointer to the destination array
 		source: pointer to source of data to be copied
 		size: copy exact num bytes
-	*/
+	
 	memcpy(&imem_insn, &memory[imem_addr], sizeof(int32_t));
 	return imem_insn;
 }
@@ -27,6 +28,8 @@ int32_t fetch_imem_insn(int32_t imem_addr){
 void store_word(int32_t imem_addr, int32_t imem_insn){
 	memcpy(&memory[imem_addr], &imem_insn, sizeof(int32_t));
 }
+
+*/
 
 struct Instruction {
 	int opcode;
