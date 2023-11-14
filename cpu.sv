@@ -28,7 +28,7 @@ inout [31:0] dmem_data;
 output reg dmem_wen;
 
 reg [15:0] clock_counter; // Clock Cycle Counter
-
+reg [31:0] MEMORY [31:0]; // FOR LOAD into MEMORY
 reg [31:0] regfile [31:0]; // Register File Creation
 reg stall; // Stall indicator
 
@@ -137,6 +137,7 @@ reg [4:0] wb_write_register_in; // goes back to WriteRegister in decode Register
 
 // ----- PARAMETERS -----
 parameter I_TYPE = 7'b0010011;
+parameter L_TYPE = 7'00000011; // LB LH LW LBU LHU
 parameter R_TYPE = 7'b0110011;
 parameter S_TYPE = 7'b0100011;
 parameter B_TYPE = 7'b1100011;
@@ -146,6 +147,26 @@ parameter J_TYPE = 7'b1101111;
 parameter I_TYPE_ALU_OP = 2'b00; 
 parameter R_TYPE_ALU_OP = 2'b10;
 parameter B_TYPE_ALU_OP = 2'b01;
+
+/*
+0000 : ADD
+0001 : SUB
+0010 : SLT
+0011 : SLTU
+0100 : SLL
+0101 : SRL
+0110 : XOR
+0111 : OR
+1000 : AND
+1001 : SRA
+??????????????????????
+1010 : LB 
+1011 : LW
+1100 : LH
+1101 : S
+1110
+1111
+*/
 
 parameter ADD_INSN = 4'b0000;
 parameter SUB_INSN = 4'b0001;
@@ -157,6 +178,9 @@ parameter AND_INSN = 4'b1000;
 parameter SLL_INSN = 4'b0100;
 parameter SRL_INSN = 4'b0101;
 parameter SRA_INSN = 4'b1001;
+
+//parameter LB_INSN = 
+
 // ----- CLOCK COUNTER AND PC -----
 always @(posedge clk or negedge rst_n) begin
     if (~rst_n) begin

@@ -1,5 +1,6 @@
 // CPU in C++. RV32I Instructions simulator.
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -9,6 +10,7 @@ using namespace std;
 
 long int regfile[32] = {0};
 int32_t pc = 0;
+int32_t *pc_ptr = &pc;
 uint8_t memory[4096] = {0};
 
 /*
@@ -59,6 +61,11 @@ Instruction decode_stage(const string& binary_instruction){
 	inst.rs1 = static_cast<int>(bits.to_ulong() >> 15) & 0x1F;
 	inst.rs2 = static_cast<int>(bits.to_ulong() >> 20) & 0x1F;
 	inst.rd = static_cast<long int>(bits.to_ulong() >> 7) & 0x1F;
+
+	if (bits[31] == 1) {
+        	inst.immediate |= 0xFFFFF000; // Extend the sign for negative values
+    	}
+
 	return inst;
 }
 
@@ -66,7 +73,7 @@ int main(){
 	ifstream myfile;
 	string mystring;
 	vector<string> instr;
-	myfile.open("addi_nohazard_cpp.dat");
+	myfile.open("i_type_cpp.dat");
 	if (myfile.is_open()){
 		while(getline(myfile, mystring)){
 			instr.push_back(mystring);
@@ -102,33 +109,45 @@ int main(){
 			switch(decoded_inst.func3){
 				case 0x0: //addi
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate;
-					cout << "Func3: " << decoded_inst.func3 << endl;
+					cout << "addi: " << decoded_inst.func3 << endl;
 					cout << "Result: " << regfile[decoded_inst.rd] << endl;
+					cout << "PC: " << &pc << endl;
+					cout << "PCC: " << *pc_ptr << endl;
 					break;
 				case 0x4: // xori
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.immediate;
-					cout << "Func3: " << decoded_inst.func3 << endl;
+					cout << "xori: " << decoded_inst.func3 << endl;
 					cout << "Result: " << regfile[decoded_inst.rd] << endl;
+					cout << "PC: " << &pc << endl;
+					cout << "PCC: " << *pc_ptr << endl;
 					break;
 				case 0x6: // ori
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.immediate;
-					cout << "Func3: " << decoded_inst.func3 << endl;
+					cout << "ori: " << decoded_inst.func3 << endl;
 					cout << "Result: " << regfile[decoded_inst.rd] << endl;
+					cout << "PC: " << &pc << endl;
+					cout << "PCC: " << *pc_ptr << endl;
 					break;
 				case 0x7: // andi
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.immediate;
-					cout << "Func3: " << decoded_inst.func3 << endl;
+					cout << "andi: " << decoded_inst.func3 << endl;
 					cout << "Result: " << regfile[decoded_inst.rd] << endl;
+					cout << "PC: " << &pc << endl;
+					cout << "PCC: " << *pc_ptr << endl;
 					break;
 				case 0x1: // slli
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << imm_bits;
-					cout << "Func3: " << decoded_inst.func3 << endl;
+					cout << "slli: " << decoded_inst.func3 << endl;
 					cout << "Result: " << regfile[decoded_inst.rd] << endl;
+					cout << "PC: " << &pc << endl;
+					cout << "PCC: " << *pc_ptr << endl;
 					break;
 				case 0x5: // srli
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> imm_bits;
-					cout << "Func3: " << decoded_inst.func3 << endl;
+					cout << "srli: " << decoded_inst.func3 << endl;
 					cout << "Result: " << regfile[decoded_inst.rd] << endl;
+					cout << "PC: " << &pc << endl;
+					cout << "PCC: " << *pc_ptr << endl;
 					break;
 				default:
 					cout << "TDB" << endl;
