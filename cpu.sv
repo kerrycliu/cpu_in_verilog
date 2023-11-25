@@ -19,13 +19,14 @@
 //
 //////////////////////////////////////////////////////////////////////////////////
 
-module cpu (rst_n, clk, imem_addr, imem_insn, dmem_addr, dmem_data, dmem_wen);
+module cpu (rst_n, clk, imem_addr, imem_insn, dmem_addr, dmem_data, dmem_wen, byte_en);
 
 input rst_n, clk;
 input reg [31:0] imem_insn;
 output reg [31:0] imem_addr, dmem_addr;
 inout [31:0] dmem_data;
 output reg dmem_wen;
+output reg [3:0] byte_en; // connect to ram via tb.sv. Driven in cpu to determin byte and half word stre. 
 
 reg [15:0] clock_counter; // Clock Cycle Counter
 reg [31:0] MEMORY [31:0]; // FOR LOAD into MEMORY
@@ -61,11 +62,17 @@ reg [3:0] ALU_CTRL_IN;
 reg [4:0] decode_instr_117; // pass all the way to WB stage - rd
 reg [4:0] ID_EX_IMM_WB;
 
+reg [31:0] decode_imem_insn; //get INSTRUCTION
+reg [31:0] ID_EX_IMEM_INSN; // get the instruction from previous stage from decode wire
+
 // ----- EXECUTE -----
 reg [1:0] execute_wb_control;
 reg [1:0] EX_MEM_WB_CTRL;
 reg [2:0] execute_m_control;
 reg [2:0] EX_MEM_M_CTRL;
+
+reg [31:0] execute_imem_insn; // get ID_EX_IMEM_INSN
+reg [31:0] EX_MEM_IMEM_INSN; // get instruction
 
 reg [1:0] alu_op_wire; // EX_CONTROL [2:1] goes into ALU_CTRL_IN
 reg alu_src_wire; //signal to mux goes into ALU
@@ -114,6 +121,8 @@ reg mem_branch_zero_in; // from EX_MEM_ZERO
 reg mem_m_branch_in;   // input for branch AND
 reg mem_branch_out_pcsrc; // output for BRANCH AND back to mux in FETCH stage
 
+reg [31:0] mem_imem_insn; // get from EX_MEM_IMEM_INSN
+reg [31:0] MEM_WB_IMEM_INSN; 
 
 // Data Memory Block
 reg [31:0] mem_alu_result; // from EX_MEM_ALU_RESULT goes into dmem_addr
@@ -134,6 +143,8 @@ reg [31:0] wb_alu_result; // from MEM_WB_ALU_RESULT
 reg [31:0] wb_write_data_mux_out; // output of mux
 
 reg [4:0] wb_write_register_in; // goes back to WriteRegister in decode Register
+
+reg [31:0] wb_imem_insn;
 
 // ----- PARAMETERS -----
 parameter I_TYPE = 7'b0010011;
@@ -269,7 +280,7 @@ end
   EX CTRL: EX[2:1] = alu_op // goes into ALU CONTROL, determine instruction TYPE
                 I-type: 00
                 R-Type: 10
-                S-Type: 01
+                S-Type: 01 Store (not alu operation, only write_enable)
                 other : 11 (Jump, Branch, Load)
            EX[0] = alu_src // signal to mux, determines execute_mux_rd2 value (execute_rd2 or execute_immediate_mux_sl1)
                 1: execute_immediate_mux_sl1
@@ -291,6 +302,8 @@ always @ (*) begin
             decode_m_control = 3'b000;
             decode_ex_control = 3'b100;            
         end
+	S_TYPE : begin
+	    decode_m_control = 3'b001; // |mem_branch_in|mem_read|mem_write|
         default : begin
             decode_wb_control = 2'b00;
             decode_m_control = 3'b000;
@@ -325,7 +338,8 @@ always @ (*) begin
         end
         default: decode_immediate = 32'b0;
     endcase
-
+    
+    decode_imem_insn = INSTRUCTION;
     decode_func7_func3 = {INSTRUCTION[30], INSTRUCTION[14:12]};
     decode_instr_117 = INSTRUCTION[11:7];
 end
@@ -349,6 +363,7 @@ always @ (posedge clk or negedge rst_n) begin
         ID_EX_IMM <= 32'b0;
         ALU_CTRL_IN <= 4'b0;
         ID_EX_IMM_WB <= 5'b0;
+	ID_EX_IMEM_INSN <= 32'b0;
     end 
     else begin
         if (stall == 0) begin
@@ -363,6 +378,7 @@ always @ (posedge clk or negedge rst_n) begin
 
             ALU_CTRL_IN <= decode_func7_func3;
             ID_EX_IMM_WB <= decode_instr_117;
+	    ID_EX_IMEM_INSN <= decode_imem_insn;
         end
         else begin
             ID_EX_IMM_WB <= 0;
@@ -385,13 +401,18 @@ always @ (*) begin
 
     execute_alu_rd1 = ID_EX_RD1;
     execute_mux_rd2 = ID_EX_RD2;
+
+    execute_imem_insn = ID_EX_IMEM_INSN;
+
     if (alu_src_wire == 1) begin
         execute_alu_result = execute_immediate_mux_sl1;
     end
     else begin
         execute_alu_result = execute_mux_rd2;
     end
-
+    
+    // execute_alu_control_in [2:0] = func3
+    // execute_alu_control_in [3] = func7
     execute_alu_control_in = ALU_CTRL_IN;
 
     // ALU Control Calculation
@@ -468,6 +489,15 @@ always @ (*) begin
         B_TYPE_ALU_OP : begin // if zero for beq
             execute_alu_control_out = SUB_INSN;
         end
+	S_TYPE_ALU_OP : begin // store: set byte_en
+	    case (execute_alu_control_in [2:0]) 
+	    	3'b000: begin // Store Byte
+		    // M[rs1 + imm][0:7] = rs2[0:7]
+		end
+		3'b001: begin // Store Half
+		    // M[rs1 + imm][0:15] = rs2[0:15]
+		end
+
     endcase
 
     // ALU Calculation
@@ -533,7 +563,9 @@ always @ (posedge clk or negedge rst_n) begin
 
         EX_MEM_RD2 <= 32'b0;
         EX_MEM_IMM_WB <= 5'b0;
-    end else begin
+	EX_MEM_IMEM_INSN <= 32'b0;
+    end 
+    else begin
         // Control Signals
         EX_MEM_WB_CTRL <= execute_wb_control;
         EX_MEM_M_CTRL <= execute_m_control;
@@ -547,6 +579,7 @@ always @ (posedge clk or negedge rst_n) begin
 
         EX_MEM_RD2 <= execute_mux_rd2;
         EX_MEM_IMM_WB <= execute_imm_wb;
+	EX_MEM_IMEM_INSN <= execute_imem_insn;
     end
 end
 
@@ -557,6 +590,7 @@ always @ (*) begin
     mem_m_mem_read = EX_MEM_M_CTRL[1];
     mem_m_mem_write = EX_MEM_M_CTRL[0];
     add_sum_mux = EX_MEM_ADD_SUM; // from AddSum Reg to mux in fetch stage, determines pc
+    mem_imem_insn = EX_MEM_IMEM_INSN;
 
     // And Branch gate for pcsrc
     mem_branch_out_pcsrc = mem_m_branch_in + mem_branch_zero_in;
@@ -568,6 +602,47 @@ always @ (*) begin
     dmem_wen = mem_m_mem_write; // WemWrite signal in dmem takes in m[0] control signal
     mem_read_data_out = dmem_data; // output of dmem block, goes into READ_DATA REG
     mem_imm_wb = EX_MEM_IMM_WB; // pass rd along
+    
+    //byte_en: determine store word or store half. 
+    // byte_en=4'b1010, ram only store bytes 3 and 1 of the 4 byte word
+    // byte_en=4'b0110, ram only store bytes 2 and 1
+    // byte_en=4'b1111, ram store all bytes
+
+    //if(dmem_wen) begin // if MemWrite enable, then check byte_en?
+    //	if(byte_en == 4'b1010)
+    if(mem_imem_insn[6:0] == 7'b0000011) begin // load instruction
+    	case(mem_imem_insn[14:12]) // func 3
+	    3'h0 : begin // Load Byte
+	        mem_read_data_out = {{24{dmem_data[7]}}, dmem_data[7:0]}; // rd=M[rs1+imm][0:7]
+		end
+	    3'h1 : begin // Load Half
+	        mem_read_data_out = {{16{dmem_data[15]}}, dmem_data[15:0]}; // rd=M[rs1+imm][15:0]
+		end
+	    3'h2 : begin // Load Word
+	    	mem_read_data_out = dmem_data; // rd=M[rs1+imm][0:31]
+		end
+	    3'h4 : begin // Load Byte
+	        mem_read_data_out = {24'b0, dmem_data[7:0]}; // rd=M[rs1+imm][0:7]
+		end
+	    3'h5 : begin // Load Half
+	        mem_read_data_out = {16'b0, dmem_data[15:0]}; // rd=M[rs1+imm][15:0]
+		end
+	    default : mem_read_data_out = 32'b0;
+	endcase
+    else if (mem_imem_insn[6:0] == 7'b0100011) begin // store instruction
+        case(mem_imem_insn[14:12]) // func3
+	    3'h0 : begin // store byte
+	    	mem_rd2_write_data = mem_rd2_write_data[7:0]; // M[rs1+imm][0:7] = rs2[0:7]
+	        end
+	    3'h1 : begin // store half
+	        mem_rd2_write_data = mem_rd2_write_data[15:0]; // M[rs1+imm][0:15] = rs2[0:15]
+		end
+	    3'h2 : begin // store word
+	        mem_rd2_write_data = mem_rd2_write_data; // M[rs1+imm][0:31] = rs2[0:31]
+		end
+	    default : mem_rd2_write_data = 32'b0;
+	endcase
+    end
 end
 
 // If instruction is STORE, then dmem_data = mem_rd2_write_data, else set to z.
@@ -579,12 +654,14 @@ always @ (posedge clk or negedge rst_n) begin
         MEM_WB_READ_DATA <= 32'b0;
         MEM_WB_ALU_RESULT <= 32'b0;
         MEM_WB_IMM_WB <= 5'b0;
+	MEM_WB_IMEM_INSN <= 32'b0;
     end 
     else begin
         MEM_WB_WB_CTRL <= mem_wb_control;
         MEM_WB_READ_DATA <= mem_read_data_out;
         MEM_WB_ALU_RESULT <= mem_alu_result;
         MEM_WB_IMM_WB <= mem_imm_wb;
+	MEM_WB_IMEM_INSN <= WB_IMEM_INSN;
     end
 end
 
@@ -593,6 +670,8 @@ always @ (*) begin
     wb_reg_write_control = MEM_WB_WB_CTRL[1]; // RegWrite signal to Registers in decode
     wb_mem_to_reg_control = MEM_WB_WB_CTRL[0]; // MemtoReg signal to mux in WB
     
+    wb_imem_insn = MEM_WB_IMEM_INSN;
+
     wb_read_data_mux_in = MEM_WB_READ_DATA; 
     wb_alu_result = MEM_WB_ALU_RESULT;
     // WriteData input to Register
@@ -600,5 +679,8 @@ always @ (*) begin
     wb_write_data_mux_out = wb_mem_to_reg_control ? wb_read_data_mux_in : wb_alu_result;
     // WriteRegister = inst[7:11] passed all they way along. rd
     wb_write_register_in = MEM_WB_IMM_WB;
+
+    wb_imem_insn = MEM_WB_IMEM_INSN;
+  
 end
 endmodule
