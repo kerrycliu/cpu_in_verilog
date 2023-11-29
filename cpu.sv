@@ -89,12 +89,12 @@ reg [31:0] execute_alu_rd1; //from ID_EX_RD1, goes into ALU
 reg [31:0] execute_mux_rd2; //from ID_EX_RD2, goes into mux before ALU
 reg [31:0] EX_MEM_RD2; // takes execute_mux_rd2 value
 reg [31:0] execute_mux_out; // output of mux, goes into alu
-reg [0:0] zero_wire; // zero flag from ALU
-reg [0:0] EX_MEM_ZERO;
+reg zero_wire; // zero flag from ALU
+reg EX_MEM_ZERO;
 reg [31:0] execute_alu_result; // result of ALU
 reg [31:0] EX_MEM_ALU_RESULT;
 
-// ALU SLT Variables
+// SLT convert signed and unsigned
 reg signed [31:0] slt_calc_in1_signed;
 reg [31:0] slt_calc_in1_unsigned;
 reg signed [31:0] slt_calc_in2_signed;
@@ -102,7 +102,7 @@ reg [31:0] slt_calc_in2_unsigned;
 reg signed [31:0] slt_calc_result_signed;
 reg [31:0] slt_calc_result_unsigned;
 
-//ALU Control
+//ALU Control Unit
 reg [3:0] execute_alu_control_in;
 reg [3:0] execute_alu_control_out;
 
@@ -150,14 +150,14 @@ reg [31:0] wb_imem_insn;
 parameter I_TYPE = 7'b0010011;
 parameter L_TYPE = 7'00000011; // LB LH LW LBU LHU
 parameter R_TYPE = 7'b0110011;
-parameter S_TYPE = 7'b0100011;
+parameter S_TYPE = 7'b0100011; // SB SH SW
 parameter B_TYPE = 7'b1100011;
 parameter U_TYPE = 7'b0110111;
 parameter J_TYPE = 7'b1101111;
 
 parameter I_TYPE_ALU_OP = 2'b00; 
 parameter R_TYPE_ALU_OP = 2'b10;
-parameter B_TYPE_ALU_OP = 2'b01;
+parameter S_TYPE_ALU_OP = 2'b01;
 
 /*
 0000 : ADD
@@ -170,13 +170,6 @@ parameter B_TYPE_ALU_OP = 2'b01;
 0111 : OR
 1000 : AND
 1001 : SRA
-??????????????????????
-1010 : LB 
-1011 : LW
-1100 : LH
-1101 : S
-1110
-1111
 */
 
 parameter ADD_INSN = 4'b0000;
@@ -281,7 +274,7 @@ end
                 I-type: 00
                 R-Type: 10
                 S-Type: 01 Store (not alu operation, only write_enable)
-                other : 11 (Jump, Branch, Load)
+                other : 11 (Jump, Branch)
            EX[0] = alu_src // signal to mux, determines execute_mux_rd2 value (execute_rd2 or execute_immediate_mux_sl1)
                 1: execute_immediate_mux_sl1
                 0: execute_alu_rd2
@@ -303,6 +296,8 @@ always @ (*) begin
             decode_ex_control = 3'b100;            
         end
 	S_TYPE : begin
+	    decode_wb_control = 2'b
+
 	    decode_m_control = 3'b001; // |mem_branch_in|mem_read|mem_write|
         default : begin
             decode_wb_control = 2'b00;
@@ -405,10 +400,10 @@ always @ (*) begin
     execute_imem_insn = ID_EX_IMEM_INSN;
 
     if (alu_src_wire == 1) begin
-        execute_alu_result = execute_immediate_mux_sl1;
+        execute_mux_out = execute_immediate_mux_sl1;
     end
     else begin
-        execute_alu_result = execute_mux_rd2;
+        execute_mux_out = execute_mux_rd2;
     end
     
     // execute_alu_control_in [2:0] = func3

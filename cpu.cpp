@@ -208,14 +208,14 @@ int main(){
 					cout << "PC: " << &pc << endl;
 					break;
 				case 0x7: //and:
-					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.rs2;
-					cout << "xor: " << endl;
+					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.rs2;
+					cout << "and: " << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 					cout << "PC: " << &pc << endl;
 					break;
 				case 0x1: //sll:
-					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.rs2;
-					cout << "xor: " << endl;
+					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << decoded_inst.rs2;
+					cout << "sll: " << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 					cout << "PC: " << &pc << endl;
 					break;
