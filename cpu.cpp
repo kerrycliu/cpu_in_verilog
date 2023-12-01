@@ -81,7 +81,7 @@ int main(){
 	ifstream myfile;
 	string mystring;
 	vector<string> instr;
-	vector<uint8_t> memory(4096,0); //for load and store
+	vector<uint8_t> memory(4096,0); //for load and store put in specific memory
 	myfile.open("r_type_cpp.dat");
 	if (myfile.is_open()){
 		while(getline(myfile, mystring)){
@@ -93,6 +93,8 @@ int main(){
 		}
 		myfile.close();
 	}
+
+	
 
 	// fetch the first instruction
 	while(pc < instr.size()){
