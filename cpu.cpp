@@ -9,7 +9,7 @@
 using namespace std;
 
 long int regfile[32] = {0};
-vector<uint32_t> memory(4068);
+vector<uint32_t> memory(4096);
 int32_t pc = 0;
 
 /*
@@ -73,6 +73,28 @@ Instruction decode_stage(const string& binary_instruction){
 	return inst;
 }
 
+uint32_t lw(uint32_t address){
+	if (sizeof(address) < memory.size()){
+		cout << "address from lw: " << address << endl;
+			for(int i = 0; i < memory.size(); i++){
+			if(memory[i] == NULL){
+			memory[i] = address;
+			}
+				if(memory[i] != NULL){
+					cout << "memory[i]:  " << memory[i] << endl;
+					if(memory[i] == address){
+						cout << "memory index from lw: " <<  memory[i] << endl;
+						return memory[i];
+					}
+				}
+			}
+	}
+	else{
+		cout << "Memory" << address << "  out of range" << endl;
+		return 0;
+	}
+}
+
 void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t base_addr){
 	unsigned int imm_bits = (decoded_inst.immediate >> 5) & 0x3F;
 	int imm_bits_signed = (decoded_inst.immediate >> 5) & 0x3F;
@@ -88,10 +110,27 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 			//cout << "rs2: " << decoded_inst.rs2 << endl;
 			//cout << "rd: " << decoded_inst.rd << endl;
 	if(decoded_inst.opcode == "0000011"){
-		cout << "Load (word only))" << endl;
+		
+		cout << "\tLoad (word only))" << endl;
 		uint32_t valid_address = base_addr + decoded_inst.immediate;
-		regfile[decoded_inst.rd] = load_word(valid_address);
-		cout << "Load: " << regfile[decoded_inst.rd] << "from address " << valid_address << endl;
+		
+		cout << "valid_addree calc" << valid_address  << endl;
+		cout << "rd: " << regfile[decoded_inst.rd] << endl;
+
+		regfile[decoded_inst.rd] = lw(valid_address);
+		cout << "regfile[rd]: " << regfile[decoded_inst.rd] << endl;
+			for(int i = 0; i < 4096; i++){
+				if(memory[i] != NULL){
+					cout << "memory[i]:  " << memory[i] << endl;
+			
+
+					if(memory[i] == valid_address){
+						cout << "memory index from lw: " <<  memory[i] << endl;
+					}
+				}
+			}
+		
+		cout << "Load: " << " from address " << valid_address << endl;
 
 	}
 	else if(decoded_inst.opcode == "0010011"){
@@ -249,21 +288,79 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 		cout << "Store instruction in address: " << memory_address << endl;
 	}
 	else if(decoded_inst.opcode == "1101111"){
-		cout << "J and B Instructions" << endl;
-		if(decoded_inst.func3 == "000"){ // TODO: Check BEQ opcode. is it the same as jump????
-			cout << "BEQ: " << endl;
-			if(regfile[decoded_inst.rs1] == regfile[decoded_inst.rs2]){
-				pc += decoded_inst.immediate;
+		cout << "JAL: " << endl;
+		switch(decoded_inst.func3){
+			case 0x0: 
+				long int jump_address = pc + decoded_inst.immediate - 1; // undo one pc
+				regfile[decoded_inst.rd] = pc + 1;
+				pc = jump_address;
+				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "PC: " << &pc << endl;
-			}
+				
 		}
-		else {
-			cout << "JAL: " << endl;
-			long int jump_address = pc + decoded_inst.immediate - 1; // undo one pc
-			regfile[decoded_inst.rd] = pc + 1;
-			pc = jump_address;
-			cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-			cout << "PC: " << &pc << endl;
+	}
+	else if(decoded_inst.opcode == "1100011"){ 
+		switch(decoded_inst.func3){
+			case 0x0: 
+				cout << "BEQ: " << endl;
+				if(regfile[decoded_inst.rs1] == regfile[decoded_inst.rs2]){
+					pc += decoded_inst.immediate;
+					cout << "PC: " << &pc << endl;	
+				}
+				else{
+					cout << "Error BEQ" << endl;
+				}
+			break;
+			case 0x1:
+				cout << "BNE: " << endl;
+				if(regfile[decoded_inst.rs1] != regfile[decoded_inst.rs2]){
+					pc += decoded_inst.immediate;
+					cout << "PC: " << &pc << endl;	
+				}
+				else{
+					cout << "Error BNE" << endl;
+				}
+			break;
+			case 0x4:
+				cout << "BLT: " << endl;
+				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
+					pc += decoded_inst.immediate;
+					cout << "PC: " << &pc << endl;	
+				}
+				else{
+					cout << "Error BLT" << endl;
+				}
+			break;
+			case 0x5:
+				cout << "BGE: " << endl;
+				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
+					pc += decoded_inst.immediate;
+					cout << "PC: " << &pc << endl;	
+				}
+				else{
+					cout << "Error BGE" << endl;
+				}
+			break;
+			case 0x6:
+				cout << "BLTU: " << endl;
+				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
+					pc += decoded_inst.immediate;
+					cout << "PC: " << &pc << endl;	
+				}
+				else{
+					cout << "Error BLTU" << endl;
+				}
+			break;
+			case 0x7:
+				cout << "BGEU: " << endl;
+				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
+					pc += decoded_inst.immediate;
+					cout << "PC: " << &pc << endl;	
+				}
+				else{
+					cout << "Error BGEU" << endl;
+				}
+			break;	
 		}
 	}
 	else if(decoded_inst.opcode == "0110111"){
@@ -281,15 +378,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 	pc++;
 
 }
-uint32_t load_word(uint32_t address){
-	if (address < memory.size()){
-		return memory[address];
-	}
-	else{
-		cout << "Memory" << address << "  out of range" << endl;
-		return 0;
-	}
-}
+
 
 int main(){
 	uint32_t baseAddress = 0x10010000; //set base address
@@ -297,7 +386,7 @@ int main(){
 
 	ifstream myfile;
 	string mystring;
-	myfile.open("r_type_cpp.dat");
+	myfile.open("ldst_cpp.dat");
 	if (myfile.is_open()){
 		while(getline(myfile, mystring)){
 			instr.push_back(mystring);
@@ -330,7 +419,7 @@ int main(){
 		cout << "Enter 32-bit instruction now: " << endl;
 		cin >> user_instruction;
 		string binary_instruction = user_instruction;
-		Instruction decoded_inst = decode_stage(binary_instruction)
+		Instruction decoded_inst = decode_stage(binary_instruction);
 		execute_instruction(decoded_inst, pc, baseAddress);
 	}
 	else {
