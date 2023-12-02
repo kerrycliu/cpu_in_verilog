@@ -209,31 +209,13 @@ end
 Check rd with read data 1 and 2 in each stage. If same, then stall, else stall=0
 */
 always @ * begin
-    if (ID_EX_IMM_WB != 0) begin
-        if (decode_rd1 == ID_EX_IMM_WB) begin
+        stall = 0; // Default to no stall
+        if ((ID_EX_IMM_WB != 0) && ((decode_rd1 == ID_EX_IMM_WB) || (decode_rd2 == ID_EX_IMM_WB))) begin
             stall = 1;
         end
-        else if (decode_rd2 == ID_EX_IMM_WB) begin
+        else if ((EX_MEM_IMM_WB != 0) && ((decode_rd1 == EX_MEM_IMM_WB) || (decode_rd2 == EX_MEM_IMM_WB))) begin
             stall = 1;
         end
-        else begin
-            stall = 0;
-        end
-    end
-    if (EX_MEM_IMM_WB != 0) begin
-        if (decode_rd1 == EX_MEM_IMM_WB) begin
-            stall = 1;
-        end
-        else if (decode_rd2 == EX_MEM_IMM_WB) begin
-            stall = 1;
-        end
-        else begin
-            stall = 0;
-        end
-    end
-    if (ID_EX_IMM_WB == 0 && EX_MEM_IMM_WB == 0) begin
-        stall = 0;
-    end
 end
 
 // ----- FETCH STAGE -----
@@ -280,10 +262,6 @@ end
                 0: execute_alu_rd2
   */
 always @ (*) begin
-    // Decoding the opcode and generating the appropriate control signals
-    // WB signals are: Regwrite, Memtoreg
-    // M signals are: Branch, Memread, Memwrite
-    // EX Signals are: ALUOp[1:0], ALUSrc
     case (INSTRUCTION[6:0])
         I_TYPE : begin
             decode_wb_control = 2'b10;
