@@ -75,27 +75,27 @@ Instruction decode_stage(const string& binary_instruction){
 
 uint32_t lw(uint32_t address){
 	if (sizeof(address) < memory.size()){
-		cout << "address from lw: " << address << endl;
-			for(int i = 0; i < memory.size(); i++){
+		//cout << "address from lw: " << address << endl;
+		for(int i = 0; i < memory.size(); i++){
 			if(memory[i] == NULL){
-			memory[i] = address;
+				memory[i] = address;
 			}
-				if(memory[i] != NULL){
-					cout << "memory[i]:  " << memory[i] << endl;
-					if(memory[i] == address){
-						cout << "memory index from lw: " <<  memory[i] << endl;
-						return memory[i];
-					}
+			if(memory[i] != NULL){
+				//cout << "memory[i]:  " << memory[i] << endl;
+				if(memory[i] == address){
+					//cout << "memory index from lw: " <<  memory[i] << endl;
+					return memory[i];
 				}
 			}
+		}
 	}
 	else{
 		cout << "Memory" << address << "  out of range" << endl;
-		return 0;
+		return 1;
 	}
 }
 
-void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t base_addr){
+void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t base_addr){
 	unsigned int imm_bits = (decoded_inst.immediate >> 5) & 0x3F;
 	int imm_bits_signed = (decoded_inst.immediate >> 5) & 0x3F;
 			//Test Decode Output
@@ -111,14 +111,15 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 			//cout << "rd: " << decoded_inst.rd << endl;
 	if(decoded_inst.opcode == "0000011"){
 		
-		cout << "\tLoad (word only))" << endl;
+		cout << "\tLoad Word Only" << endl;
 		uint32_t valid_address = base_addr + decoded_inst.immediate;
 		
-		cout << "valid_addree calc" << valid_address  << endl;
-		cout << "rd: " << regfile[decoded_inst.rd] << endl;
+		//cout << "valid_addree calc" << valid_address  << endl;
+		//cout << "rd: " << regfile[decoded_inst.rd] << endl;
 
 		regfile[decoded_inst.rd] = lw(valid_address);
 		cout << "regfile[rd]: " << regfile[decoded_inst.rd] << endl;
+		/* DEBUG: 
 			for(int i = 0; i < 4096; i++){
 				if(memory[i] != NULL){
 					cout << "memory[i]:  " << memory[i] << endl;
@@ -129,7 +130,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 					}
 				}
 			}
-		
+		*/
 		cout << "Load: " << " from address " << valid_address << endl;
 
 	}
@@ -138,49 +139,49 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 		switch(decoded_inst.func3){
 			case 0x0: //addi
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate;
-				cout << "addi: " << decoded_inst.func3 << endl;
+				cout << "addi: "  << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << pc << endl;
 				break;
 			case 0x4: // xori
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.immediate;
-				cout << "xori: " << decoded_inst.func3 << endl;
+				cout << "xori: "  << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << pc << endl;
 				break;
 			case 0x6: // ori
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.immediate;
-				cout << "ori: " << decoded_inst.func3 << endl;
+				cout << "ori: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x7: // andi
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.immediate;
-				cout << "andi: " << decoded_inst.func3 << endl;
+				cout << "andi: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x1: // slli
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << imm_bits;
-				cout << "slli: " << decoded_inst.func3 << endl;
+				cout << "slli: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x5: // srli
 				// imm[5:11] = 0x00
 				if (decoded_inst.immediate == 010000){
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> imm_bits;
-					cout << "srli: " << decoded_inst.func3 << endl;
+					cout << "srli: "  << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-					cout << "PC: " << &pc << endl;
+					cout << "\tPC: " << &pc << endl;
 				}
 				// imm[5:11] = 0x20 
 				else {
 					// srai
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> imm_bits_signed;
-					cout << "srai: " << decoded_inst.func3 << endl;
+					cout << "srai: " << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-					cout << "PC: " << &pc << endl;
+					cout << "\tPC: " << &pc << endl;
 				}
 				break;
 			case 0x2: //slti
@@ -190,9 +191,9 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 				else {
 					regfile[decoded_inst.rd] = 0;
 				}
-				cout << "slti: " << decoded_inst.func3 << endl;
+				cout << "slti: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;	
 		}
 	}
@@ -203,40 +204,40 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 				switch(decoded_inst.func7){
 					case  0x00: //add
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.rs2;
-						cout << "add: " << decoded_inst.func3 << endl;
+						cout << "add: " << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-						cout << "PC: " << &pc << endl;
+						cout << "\tPC: " << &pc << endl;
 						break;
 					case  0x20: //sub
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] - decoded_inst.rs2;
-						cout << "sub: " << decoded_inst.func3 << endl;
+						cout << "sub: " << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-						cout << "PC: " << &pc << endl;
+						cout << "\tPC: " << &pc << endl;
 						break;
 				}
 			case 0x4: //xor
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.rs2;
 				cout << "xor: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x6: //or:
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.rs2;
 				cout << "xor: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x7: //and:
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.rs2;
 				cout << "and: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x1: //sll:
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << decoded_inst.rs2;
 				cout << "sll: " << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x5:
 				switch(decoded_inst.func7){
@@ -244,13 +245,13 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> decoded_inst.rs2;
 						cout << "srl: " << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-						cout << "PC: " << &pc << endl;
+						cout << "\tPC: " << &pc << endl;
 						break;
 					case 0x20: //sra
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> decoded_inst.rs2_signed;
 						cout << "sra: " << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-						cout << "PC: " << &pc << endl;
+						cout << "\tPC: " << &pc << endl;
 						break;
 				}
 				break;
@@ -258,34 +259,34 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 				if(regfile[decoded_inst.rs1] < decoded_inst.rs2){
 					regfile[decoded_inst.rd] = 1;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-					cout << "PC: " << &pc << endl;
+					cout << "\tPC: " << &pc << endl;
 
 				}
 				else{
 					regfile[decoded_inst.rd] = 0;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-					cout << "PC: " << &pc << endl;
+					cout << "\tPC: " << &pc << endl;
 				}
 				break;
 			case 0x3: //sltu
 				if(regfile[decoded_inst.rs1] < decoded_inst.rs2){
 					regfile[decoded_inst.rd] = 1;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-					cout << "PC: " << &pc << endl;
+					cout << "\tPC: " << &pc << endl;
 				}
 				else{
 					regfile[decoded_inst.rd] = 0;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-					cout << "PC: " << &pc << endl;
+					cout << "\tPC: " << &pc << endl;
 				}
 				break;
 		}
 	}
 	else if(decoded_inst.opcode == "0100011"){
-		cout << "\tStore Instructions" << endl;
+		cout << "Store Instructions" << endl;
 		int memory_address = regfile[decoded_inst.rs1] + decoded_inst.immediate;
 		memory[memory_address] = regfile[decoded_inst.rs2];
-		cout << "Store instruction in address: " << memory_address << endl;
+		cout << "\tStore instruction in address: " << memory[memory_address] << endl;
 	}
 	else if(decoded_inst.opcode == "1101111"){
 		cout << "JAL: " << endl;
@@ -295,7 +296,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 				regfile[decoded_inst.rd] = pc + 1;
 				pc = jump_address;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+				cout << "\tPC: " << &pc << endl;
 				
 		}
 	}
@@ -375,7 +376,6 @@ void execute_instruction(const Instruction& decoded_inst, int32_t &pc, uint32_t 
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "PC: " << &pc << endl;
 	}
-	pc++;
 
 }
 
@@ -412,6 +412,7 @@ int main(){
 			string binary_instruction = instr[pc];
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc, baseAddress);
+			pc++;
 		}
 	}
 	else if(user_input == 's'){
@@ -421,6 +422,7 @@ int main(){
 		string binary_instruction = user_instruction;
 		Instruction decoded_inst = decode_stage(binary_instruction);
 		execute_instruction(decoded_inst, pc, baseAddress);
+		pc++;
 	}
 	else {
 		cout << "Invalid input" << endl;
