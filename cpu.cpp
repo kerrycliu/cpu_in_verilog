@@ -8,7 +8,7 @@
 
 using namespace std;
 
-long int regfile[32] = {0};
+long signed int regfile[32] = {0};
 vector<uint32_t> memory(4096);
 int32_t pc = 0;
 
@@ -41,7 +41,7 @@ struct Instruction {
 	int rs1;
 	int rs2_signed;
 	unsigned int rs2;
-	long int rd;
+	signed long int rd;
 };
 
 Instruction decode_stage(const string& binary_instruction){
@@ -140,6 +140,8 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 000: //addi
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate;
 				cout << "addi: "  << endl;
+				cout << "rs1: : " << regfile[decoded_inst.rs1] << endl;
+				cout << "imm: " << decoded_inst.immediate;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << pc << endl;
@@ -213,6 +215,8 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 					case  0x00: //add
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.rs2;
 						cout << "add: " << endl;
+						cout << "rs1: : " << regfile[decoded_inst.rs1] << endl;
+						cout << "rs2: " << decoded_inst.rs2;
 						cout << "func3: " << decoded_inst.func3 << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 						cout << "\tPC: " << &pc << endl;
@@ -318,6 +322,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				pc = jump_address;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << &pc << endl;
+				break;
 				
 		}
 	}
@@ -332,7 +337,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				else{
 					cout << "Error BEQ" << endl;
 				}
-			break;
+				break;
 			case 0x1:
 				cout << "BNE: " << endl;
 				if(regfile[decoded_inst.rs1] != regfile[decoded_inst.rs2]){
@@ -342,7 +347,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				else{
 					cout << "Error BNE" << endl;
 				}
-			break;
+				break;
 			case 0x4:
 				cout << "BLT: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
@@ -352,7 +357,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				else{
 					cout << "Error BLT" << endl;
 				}
-			break;
+				break;
 			case 0x5:
 				cout << "BGE: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
@@ -362,7 +367,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				else{
 					cout << "Error BGE" << endl;
 				}
-			break;
+				break;
 			case 0x6:
 				cout << "BLTU: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
@@ -372,7 +377,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				else{
 					cout << "Error BLTU" << endl;
 				}
-			break;
+				break;
 			case 0x7:
 				cout << "BGEU: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
@@ -382,7 +387,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				else{
 					cout << "Error BGEU" << endl;
 				}
-			break;	
+				break;	
 		}
 	}
 	else if(decoded_inst.opcode == "0110111"){
@@ -394,8 +399,12 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 	else if(decoded_inst.opcode == "0010111"){
 		cout << "AUIPC instruction" << endl;
 		regfile[decoded_inst.rd] = pc + (decoded_inst.immediate_lui << 12);
-				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
-				cout << "PC: " << &pc << endl;
+		cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
+		cout << "PC: " << &pc << endl;
+	}
+	else{
+		cerr << "invalid instruction" << endl;
+		return 1;
 	}
 
 }
