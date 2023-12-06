@@ -8,7 +8,7 @@
 
 using namespace std;
 
-long signed int regfile[32] = {0};
+long int regfile[32] = {0};
 vector<uint32_t> memory(4096);
 int32_t pc = 0;
 
@@ -36,12 +36,11 @@ struct Instruction {
 	string opcode;
 	int func7;
 	int func3;
-	int immediate;
+	int immediate_i;
 	int immediate_lui;
-	int rs1;
-	int rs2_signed;
+	unsigned int rs1;
 	unsigned int rs2;
-	signed long int rd;
+	int rd;
 };
 
 Instruction decode_stage(const string& binary_instruction){
@@ -59,16 +58,21 @@ Instruction decode_stage(const string& binary_instruction){
 	//inst.opcode = static_cast<int>(bits.to_ulong()) & 0x1F;
 	inst.func3 = static_cast<int>(bits.to_ulong() >> 12) & 0x7; // Convert to int
 	inst.func7 = static_cast<int>(bits.to_ulong() >> 25); // r-type=func7 & store=immediate[11:5]
-	inst.immediate = static_cast<int>(bits.to_ulong() >> 20);  // for i-type and load
-	inst.immediate_lui = static_cast<int>(bits.to_ulong() >> 12); // LUI: imm[31:12]
-	inst.rs1 = static_cast<int>(bits.to_ulong() >> 15) & 0x1F;
+	inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20);  // for i-type and load
+	//inst.immediate_lui = static_cast<int>(bits.to_ulong() << 12); // LUI: imm[31:12]
+	inst.rs1 = static_cast<unsigned int>(bits.to_ulong() >> 15) & 0x1F;
 	inst.rs2 = static_cast<unsigned int>(bits.to_ulong() >> 20) & 0x1F;
-	inst.rs2_signed = static_cast<int>(bits.to_ulong() >> 20) & 0x1F;
 	inst.rd = static_cast<long int>(bits.to_ulong() >> 7) & 0x1F;
 
 	if (bits[31] == 1) {
-        	inst.immediate |= 0xFFFFF000; // Extend the sign for negative values
+        	inst.immediate_i |= 0xFFFFF000; // Extend the sign for negative values
     	}
+	else if(inst.opcode == "0010011" && (inst.func3 == 0x1 || inst.func3 == 0x5) ){ // slli srli
+		inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20) & 0x1F;
+		if(bits[24] == 1){
+			inst.immediate_i |= 0xFFFFFFE0;
+		}
+	}
 
 	return inst;
 }
@@ -96,8 +100,10 @@ uint32_t lw(uint32_t address){
 }
 
 void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t base_addr){
-	unsigned int imm_bits = (decoded_inst.immediate >> 5) & 0x3F;
-	int imm_bits_signed = (decoded_inst.immediate >> 5) & 0x3F;
+
+	unsigned int imm_bits = static_cast<unsigned int>(decoded_inst.immediate_i << 7); // only keep first 5
+	int imm_bits_signed = static_cast<int>(decoded_inst.immediate_i);
+	//int imm_bits_signed = (decoded_inst.immediate_i << 7) & 0x3F;  
 			//Test Decode Output
 			//cout << "Executing Instruction:" << endl;
 			//cout << "Opcode: " << decoded_inst.opcode << endl;
@@ -112,7 +118,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 	if(decoded_inst.opcode == "0000011"){
 		
 		cout << "\tLoad Word Only" << endl;
-		uint32_t valid_address = base_addr + decoded_inst.immediate;
+		uint32_t valid_address = base_addr + decoded_inst.immediate_i;
 		
 		//cout << "valid_addree calc" << valid_address  << endl;
 		//cout << "rd: " << regfile[decoded_inst.rd] << endl;
@@ -138,37 +144,37 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 		cout << "\tI-Type Instruction" << endl;
 		switch(decoded_inst.func3){
 			case 000: //addi
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
 				cout << "addi: "  << endl;
 				cout << "rs1: : " << regfile[decoded_inst.rs1] << endl;
-				cout << "imm: " << decoded_inst.immediate;
+				cout << "imm: " << decoded_inst.immediate_i;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << pc << endl;
 				break;
 			case 0x4: // xori
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.immediate;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.immediate_i;
 				cout << "xori: "  << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << pc << endl;
 				break;
 			case 0x6: // ori
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.immediate;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.immediate_i;
 				cout << "ori: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x7: // andi
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.immediate;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.immediate_i;
 				cout << "andi: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x1: // slli
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << imm_bits;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << decoded_inst.immediate_i;
 				cout << "slli: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
@@ -176,10 +182,12 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				break;
 			case 0x5: // srli
 				// imm[5:11] = 0x00
-				if (decoded_inst.immediate == 010000){
-					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> imm_bits;
+				if (decoded_inst.func7 == 0x00){
+					regfile[decoded_inst.rd] = static_cast<unsigned int>(regfile[decoded_inst.rs1]) >> decoded_inst.immediate_i;
 					cout << "srli: "  << endl;
 					cout << "func3: " << decoded_inst.func3 << endl;
+				//	cout << "rs1: " << bitset<32>(regfile[decoded_inst.rs1]) << endl;
+				//	cout << "immediate: " << bitset<32>(decoded_inst.immediate_i);
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 					cout << "\tPC: " << &pc << endl;
 				}
@@ -188,13 +196,16 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 					// srai
 					regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> imm_bits_signed;
 					cout << "srai: " << endl;
+					//cout << "rs1: " << bitset<32>(regfile[decoded_inst.rs1]) << endl;
+					//cout << "immediate: " << bitset<32>(decoded_inst.immediate_i);
+					//cout << "\tResult: " << bitset<32>(regfile[decoded_inst.rd]) << endl;
 					cout << "func3: " << decoded_inst.func3 << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 					cout << "\tPC: " << &pc << endl;
 				}
 				break;
 			case 0x2: //slti
-				if(regfile[decoded_inst.rs1] < decoded_inst.immediate){
+				if(regfile[decoded_inst.rs1] < decoded_inst.immediate_i){
 					regfile[decoded_inst.rd] = 1;
 				}
 				else {
@@ -213,7 +224,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x0:
 				switch(decoded_inst.func7){
 					case  0x00: //add
-						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.rs2;
+						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + regfile[decoded_inst.rs2];
 						cout << "add: " << endl;
 						cout << "rs1: : " << regfile[decoded_inst.rs1] << endl;
 						cout << "rs2: " << decoded_inst.rs2;
@@ -222,7 +233,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 						cout << "\tPC: " << &pc << endl;
 						break;
 					case  0x20: //sub
-						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] - decoded_inst.rs2;
+						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] - regfile[decoded_inst.rs2];
 						cout << "sub: " << endl;
 						cout << "func3: " << decoded_inst.func3 << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
@@ -231,28 +242,28 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				}
 				break;
 			case 0x4: //xor
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.rs2;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ regfile[decoded_inst.rs2];
 				cout << "xor: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x6: //or:
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | decoded_inst.rs2;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] | regfile[decoded_inst.rs2];
 				cout << "or: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x7: //and:
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & decoded_inst.rs2;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] & regfile[decoded_inst.rs2];
 				cout << "and: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 				cout << "\tPC: " << &pc << endl;
 				break;
 			case 0x1: //sll:
-				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << decoded_inst.rs2;
+				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] << regfile[decoded_inst.rs2];
 				cout << "sll: " << endl;
 				cout << "func3: " << decoded_inst.func3 << endl;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
@@ -261,14 +272,14 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x5:
 				switch(decoded_inst.func7){
 					case 0x00: //srl
-						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> decoded_inst.rs2;
+						regfile[decoded_inst.rd] = static_cast<unsigned int>(regfile[decoded_inst.rs1]) >> regfile[decoded_inst.rs2];
 						cout << "srl: " << endl;
 						cout << "func3: " << decoded_inst.func3 << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 						cout << "\tPC: " << &pc << endl;
 						break;
 					case 0x20: //sra
-						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> decoded_inst.rs2_signed;
+						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] >> regfile[decoded_inst.rs2];
 						cout << "sra: " << endl;
 						cout << "func3: " << decoded_inst.func3 << endl;
 						cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
@@ -277,7 +288,8 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				}
 				break;
 			case 0x2: //slt
-				if(regfile[decoded_inst.rs1] < decoded_inst.rs2){
+				cout << "slt: " << endl;
+				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
 					regfile[decoded_inst.rd] = 1;
 					cout << "func3: " << decoded_inst.func3 << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
@@ -292,14 +304,16 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 				}
 				break;
 			case 0x3: //sltu
-				if(regfile[decoded_inst.rs1] < decoded_inst.rs2){
+				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
 					regfile[decoded_inst.rd] = 1;
+					cout << "sltu: " << endl;
 					cout << "func3: " << decoded_inst.func3 << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 					cout << "\tPC: " << &pc << endl;
 				}
 				else{
 					regfile[decoded_inst.rd] = 0;
+					cout << "sltu: " <<endl;
 					cout << "func3: " << decoded_inst.func3 << endl;
 					cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 					cout << "\tPC: " << &pc << endl;
@@ -309,7 +323,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 	}
 	else if(decoded_inst.opcode == "0100011"){
 		cout << "Store Instructions" << endl;
-		int memory_address = regfile[decoded_inst.rs1] + decoded_inst.immediate;
+		int memory_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
 		memory[memory_address] = regfile[decoded_inst.rs2];
 		cout << "\tStore instruction in address: " << memory[memory_address] << endl;
 	}
@@ -317,7 +331,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 		cout << "JAL: " << endl;
 		switch(decoded_inst.func3){
 			case 0x0: 
-				long int jump_address = pc + decoded_inst.immediate - 1; // undo one pc
+				long int jump_address = pc + decoded_inst.immediate_i - 1; // undo one pc
 				regfile[decoded_inst.rd] = pc + 1;
 				pc = jump_address;
 				cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
@@ -331,7 +345,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x0: 
 				cout << "BEQ: " << endl;
 				if(regfile[decoded_inst.rs1] == regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate;
+					pc += decoded_inst.immediate_i;
 					cout << "PC: " << &pc << endl;	
 				}
 				else{
@@ -341,7 +355,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x1:
 				cout << "BNE: " << endl;
 				if(regfile[decoded_inst.rs1] != regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate;
+					pc += decoded_inst.immediate_i;
 					cout << "PC: " << &pc << endl;	
 				}
 				else{
@@ -351,7 +365,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x4:
 				cout << "BLT: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate;
+					pc += decoded_inst.immediate_i;
 					cout << "PC: " << &pc << endl;	
 				}
 				else{
@@ -361,7 +375,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x5:
 				cout << "BGE: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate;
+					pc += decoded_inst.immediate_i;
 					cout << "PC: " << &pc << endl;	
 				}
 				else{
@@ -371,7 +385,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x6:
 				cout << "BLTU: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate;
+					pc += decoded_inst.immediate_i;
 					cout << "PC: " << &pc << endl;	
 				}
 				else{
@@ -381,7 +395,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 			case 0x7:
 				cout << "BGEU: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate;
+					pc += decoded_inst.immediate_i;
 					cout << "PC: " << &pc << endl;	
 				}
 				else{
@@ -392,7 +406,11 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 	}
 	else if(decoded_inst.opcode == "0110111"){
 		cout << "LUI instruction " << endl;
-		regfile[decoded_inst.rd] = decoded_inst.immediate_lui << 12;
+		bitset<32> imm(decoded_inst.immediate_i);
+		regfile[decoded_inst.rd] = static_cast<unsigned long int>(imm.to_ulong()) << 12;
+		cout << "immediate: " << bitset<32>(decoded_inst.immediate_i) << endl;
+		cout << "\tResult: " << bitset<32>(regfile[decoded_inst.rd]) << endl;
+		cout << "immediate: " << decoded_inst.immediate_i << endl;
 		cout << "\tResult: " << regfile[decoded_inst.rd] << endl;
 		cout << "PC: " << &pc << endl;
 	}
@@ -404,7 +422,6 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, uint32_t b
 	}
 	else{
 		cerr << "invalid instruction" << endl;
-		return 1;
 	}
 
 }
@@ -416,7 +433,7 @@ int main(){
 
 	ifstream myfile;
 	string mystring;
-	myfile.open("r_type_cpp.dat");
+	myfile.open("ldst.dat");
 	if (myfile.is_open()){
 		while(getline(myfile, mystring)){
 			instr.push_back(mystring);
