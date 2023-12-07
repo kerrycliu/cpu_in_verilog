@@ -2,36 +2,72 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <bitset>
 
 using namespace std;
 
-long int regfile[32] = {0};
-vector<uint32_t> memory(4096);
+uint32_t baseAddress = 0x10010000; //set base address
+vector<int32_t> regfile(32,0);
+vector<int32_t> memory(32,0);
+//memory[(baseAddress-0x10010000)/sizeof(int32_t)] = -3;
+//vector<int32_t> dataMemory = {-3,7,25,-1};
 int32_t pc_display = 0;
 int32_t pc = 0;
 
-/*
-int32_t fetch_imem_insn(int32_t imem_addr){
-	int32_t imem_insn;
-	
-	Copy Block of Memory
-	memcpy(*destination, *source, size_t num)
-		destination: pointer to the destination array
-		source: pointer to source of data to be copied
-		size: copy exact num bytes
-	
-	memcpy(&imem_insn, &memory[imem_addr], sizeof(int32_t));
-	return imem_insn;
+
+int32_t pre_store(){
+	int32_t dmem[4]={-3,25,7,-1};
+//	for(int i = 0; i < 4; i++){
+//		cout << dmem[i] << endl;
+//	}
+	uint32_t mybase = baseAddress;
+	cout << "Prestoring " << endl;
+	int32_t mem_idx;
+	stringstream ss;
+	ss << hex << mybase;
+	ss >> mem_idx;
+	mem_idx &= 0xFF;
+	for(int j = mem_idx; j < 12; j+=4){
+		for(int i = 0; i < 4; i++){
+		memory[j] = dmem[i];
+		cout << "mem[inx]: " << mem_idx << endl;
+		cout << "dmem[i]: " << dmem[j] << endl;
+		}
+		return memory[mem_idx];	
+	}
+
 }
 
-void store_word(int32_t imem_addr, int32_t imem_insn){
-	memcpy(&memory[imem_addr], &imem_insn, sizeof(int32_t));
+signed int map_t(unsigned int x_reg){ // x reg to t reg
+	if(x_reg >= 5 && x_reg <= 31){
+		return (x_reg - 5) % 10;
+	}
+	else{
+		return x_reg;
+	}
 }
 
-*/
+int32_t base_address_int(const string& binary_variable){
+	bitset<32> bits(binary_variable);
+	int new_base = static_cast<int>(bits.to_ulong());
+
+	return new_base;
+}
+
+struct Dmem {
+	int value;
+};
+
+Dmem decode_dmem(const string& binary_val){
+	Dmem data;
+	bitset<32> bits(binary_val);
+	data.value = static_cast<int>(bits.to_ulong());
+
+	return data;
+}
 
 struct Instruction {
 	string opcode;
@@ -40,6 +76,7 @@ struct Instruction {
 	int immediate_s;
 	int immediate_j;
 	int immediate_i;
+	int immediate_b;
 	int immediate_lui;
 	unsigned int rs1;
 	unsigned int rs2;
@@ -56,11 +93,13 @@ Instruction decode_stage(const string& binary_instruction){
     		((bits.to_ulong() >> 25) & 0x7F) << 5 |  // Bits 31:25 become Bits 11:5
     		((bits.to_ulong() >> 7) & 0x1F)           // Bits 11:7 remain the same
 	);
+	bitset<12> imm_bits_branch = static_cast<int>(bits.to_ulong() >> 20) & 0xFFF;
+	inst.immediate_b = static_cast<int>(imm_bits_branch.to_ulong());
 	inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20);  // for i-type and load
 	inst.immediate_lui = static_cast<int>(bits.to_ulong() >> 12); // LUI: imm[31:12]
 	inst.rs1 = static_cast<unsigned int>(bits.to_ulong() >> 15) & 0x1F;
 	inst.rs2 = static_cast<unsigned int>(bits.to_ulong() >> 20) & 0x1F;
-	inst.rd = static_cast<long int>(bits.to_ulong() >> 7) & 0x1F;
+	inst.rd = static_cast<int>(bits.to_ulong() >> 7) & 0x1F;
 	inst.immediate_j = static_cast<int>(
    	  	((bits.to_ulong() >> 20) & 0x001) << 19 |  // Bit 20 becomes Bit 19
     		((bits.to_ulong() >> 1) & 0x3FF) << 9 |    // Bits 10:1 become Bits 10:9
@@ -72,53 +111,48 @@ Instruction decode_stage(const string& binary_instruction){
 		inst.immediate_j |= 0xFFF00000;
         	inst.immediate_i |= 0xFFFFF000; // Extend the sign for negative values
     	}
+	if (imm_bits_branch[11] == 1) {
+     	   inst.immediate_b |= 0xFFFFF000;  // Sign extension
+    	}
+	inst.immediate_b <<= 1;
 	if(inst.opcode == "0010011" && (inst.func3 == 0x1 || inst.func3 == 0x5) ){ // slli srli
 		inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20) & 0x1F;
-		//if(bits[24] == 1){
-		//	inst.immediate_i |= 0xFFFE0;
-		//}
+		if(bits[24] == 1){
+			inst.immediate_i |= 0xFFFE0;
+		}
 	}
 
 	return inst;
 }
 
-int32_t lw(int32_t address){
-	if (sizeof(address) < memory.size()){
-		//cout << "address from lw: " << address << endl;
-		for(int i = 0; i < memory.size(); i++){
-			if(memory[i] == NULL){
-				memory[i] = address;
-			}
-			if(memory[i] != NULL){
-				//cout << "memory[i]:  " << memory[i] << endl;
-				if(memory[i] == address){
-					//cout << "memory index from lw: " <<  memory[i] << endl;
-					return memory[i];
-				}
-			}
-		}
-	}
-	else{
-		cout << "Memory" << address << "  out of range" << endl;
-		return 1;
-	}
-}
 
-void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc_display, int32_t base_addr){
+void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc_display, uint32_t base_addr){
+	/*
+	cout << dmem_data.value << endl;
+	int32_t mem_ind;
+	int32_t memory_address = baseAddress;
+        stringstream ss;
+        ss << hex << memory_address;
+        ss >> mem_ind;
+	mem_ind &= 0xFF;
+	memory[mem_ind] = dmem_data.value;
+*/
 	int imm_bits_signed = static_cast<int>(decoded_inst.immediate_i);
 	if(decoded_inst.opcode == "0000011"){
-		
 		cout << "\tLoad Word Only" << endl;
-		int32_t valid_address = base_addr + decoded_inst.immediate_i;
-		//int32_t valid_address = base_addr + decoded_inst.rs1 + decoded_inst.immediate_i;
-		regfile[decoded_inst.rd] = lw(valid_address);
-		//cout << "regfile[rd]: " << regfile[decoded_inst.rd] << endl;
-		//cout << "load value: " << decoded_inst.rd << endl;
-		//cout << "Load: " << " from address " << valid_address << endl;
+		//regfile[decoded_inst.rs1]
+		int32_t valid_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
+		int32_t mem_ind = 0;
+		stringstream ss;
+		ss << hex << valid_address;
+		ss >> mem_ind;
+		mem_ind &= 0xFF;
+		regfile[decoded_inst.rd] = memory[mem_ind];
+		cout << "Load: " << regfile[decoded_inst.rd] << " from address " << valid_address << endl;
 
 	}
 	else if(decoded_inst.opcode == "0010011"){
-		cout << "\tI-Type Instruction" << endl;
+		cout << "I" << endl;
 		switch(decoded_inst.func3){
 			case 000: //addi
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
@@ -157,7 +191,7 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 		}
 	}
 	else if(decoded_inst.opcode == "0110011"){
-		cout << "\tR-Type Instruction" << endl;
+		cout << "R" << endl;
 		switch (decoded_inst.func3){
 			case 0x0:
 				switch(decoded_inst.func7){
@@ -212,10 +246,16 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 		}
 	}
 	else if(decoded_inst.opcode == "0100011"){
-		cout << "Store Instructions" << endl;
-		int memory_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_s;
+		cout << "S" << endl;
+		int32_t mem_ind;
+		int32_t memory_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_s;
+		stringstream ss;
+		ss << hex << memory_address;
+		ss >> mem_ind;
+		mem_ind &= 0xFF;
 		try{
-			memory.at(memory_address) = regfile[decoded_inst.rs2];
+			memory.at(mem_ind) = regfile[decoded_inst.rs2];
+			cout << "Stored: " << memory[mem_ind] << " in address " << memory_address << endl;
 		}
 		catch(const out_of_range& e){
 			cout << "Stored in: " << memory_address << endl;
@@ -237,7 +277,7 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 			case 0x0: 
 				cout << "BEQ: " << endl;
 				if(regfile[decoded_inst.rs1] == regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_i;
+					pc += decoded_inst.immediate_b;
 				}
 				else{
 					cout << "Error BEQ" << endl;
@@ -246,7 +286,7 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 			case 0x1:
 				cout << "BNE: " << endl;
 				if(regfile[decoded_inst.rs1] != regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_i;
+					pc += decoded_inst.immediate_b;
 				}
 				else{
 					cout << "Error BNE" << endl;
@@ -255,7 +295,7 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 			case 0x4:
 				cout << "BLT: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_i;
+					pc += decoded_inst.immediate_b;
 				}
 				else{
 					cout << "Error BLT" << endl;
@@ -264,16 +304,15 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 			case 0x5:
 				cout << "BGE: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_i;
+					cout << "decoded_inst.immediate_b: " << decoded_inst.immediate_b << endl;
+					pc += decoded_inst.immediate_b;
 				}
-				else{
-					cout << "Error BGE" << endl;
-				}
+				
 				break;
 			case 0x6:
 				cout << "BLTU: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_i;
+					pc += decoded_inst.immediate_b;
 				}
 				else{
 					cout << "Error BLTU" << endl;
@@ -282,7 +321,7 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 			case 0x7:
 				cout << "BGEU: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_i;
+					pc += decoded_inst.immediate_b;
 				}
 				else{
 					cout << "Error BGEU" << endl;
@@ -301,16 +340,29 @@ void  execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t p
 	else{
 		cerr << "invalid instruction" << endl;
 	}
-
  	
-	cout << "alu_result: " << regfile[decoded_inst.rd] << endl;
+//	cout << "rs1: " << decoded_inst.rs1 << " rs2: " << regfile[decoded_inst.rs2] << endl;
+//	cout << "imm: " << decoded_inst.immediate_i << endl;
+	cout << "register: t" << map_t(decoded_inst.rd) << " = " << regfile[decoded_inst.rd] << endl;
 	cout << "PC: " << pc_display << endl;
+}
+
+void exec_value(const Dmem& dmem_data){
+
+	cout << dmem_data.value << endl;
+	int32_t mem_ind;
+	int32_t memory_address = baseAddress;
+        stringstream ss;
+        ss << hex << memory_address;
+        ss >> mem_ind;
+	mem_ind &= 0xFF;
+	memory[mem_ind] = dmem_data.value;
 }
 
 
 int main(){
-	int32_t baseAddress = 0x10010000; //set base address
 	vector<string> instr; // vector string for instructions
+	vector<string> dmem;
 
 	ifstream myfile;
 	string mystring;
@@ -325,34 +377,73 @@ int main(){
 		}
 		myfile.close();
 	}
-
 	
-
+	ifstream dataFile("dmem_cpp.dat", ios::binary);
+	string mystring2;
+	if(dataFile.is_open()){
+		while (getline(dataFile, mystring2)) {
+	//		int32_t intVal = stoi(mystring2, nullptr, 2);
+            		dmem.push_back(mystring2);
+		//	cout << "Memory[" << baseAddress + dataMemory.size() * sizeof(int32_t) << "] = " << intVal << endl;
+			//cout << dataMemory.back() << endl;
+			if(dmem.size()==32){
+				break;
+			}
+        	}	
+        	dataFile.close();
+	}
+	
+	memory[0] = -3;
+	memory[4] = 25;
+	memory[8] = 7;
+	memory[12]= -1;
+	
 	char user_input; 
 	cout << "Enter 'r': run entire program at once.  " << endl;
 	cout << "Enter 's': run one instruction at a time. Wait for next instruction. Ctrl C to exit." << endl;
 
 	cin >> user_input;
 
+//	int32_t dmem_values[4] = {-3,25,7,-1};
+	
+//	for (int i = 0; i < 4; i++){
+//		memory[i] = pre_store();
+//		cout << "main: " << memory[i] << endl;
+//	}
+//	cout << "memory" << endl;
+	//for (size_t i = 0; i < dataMemory.size(); ++i) {
+        //	int32_t intValue = std::stoi(dataMemory[i], nullptr, 2);
+        //	reinterpret_cast<int32_t*>(&dataMemory[baseAddress + i * sizeof(int32_t)])[0] = intValue;
+	//	cout << dataMemory << endl;
+    //	}
+	
+	int data_counter = 0;
+	
         if (user_input == 'r'){
-
-	// fetch the first instruction
 		while(pc < instr.size()){
+		//	while( data_counter < dmem.size()){
+		//		string binary_val = dmem[data_counter];
+		//		Dmem dmem_data = decode_dmem(binary_val);
+		//		exec_value(dmem_data);
+		//		data_counter++;
+		//	}
 			string binary_instruction = instr[pc];
+			//string binary_val = dmem[data_counter];
+			//Dmem dmem_data = decode_dmem(binary_val);
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc, pc_display, baseAddress);
 			pc_display += 4;
 			pc++;
-//			for(int i = 0; i < 32; i++){
-//				cout << "regfile: (" << i << ") " << regfile[i] << endl;
-//			}
 		}
+
 	}
 	else if(user_input == 's'){
 		while(true){
 			string user_instruction;
 			cout << "Enter 32-bit instruction now: " << endl;
 			cin >> user_instruction;
+			string binary_val = dmem[pc];
+			Dmem dmem_data = decode_dmem(binary_val);
 			string binary_instruction = user_instruction;
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc, pc_display, baseAddress);
