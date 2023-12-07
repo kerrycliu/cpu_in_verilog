@@ -78,14 +78,23 @@ struct Instruction {
 	int immediate_i;
 	int immediate_b;
 	int immediate_lui;
-	unsigned int rs1;
-	unsigned int rs2;
-	int rd;
+	int32_t rs1;
+	int32_t rs2;
+	int32_t rd;
 };
 
 Instruction decode_stage(const string& binary_instruction){
 	Instruction inst;
 	bitset<32> bits(binary_instruction);
+	int32_t tmp1 = 0;
+	int32_t tmp2 = 0;
+	int32_t tmp3 = 0;
+	int32_t tmp4 = 0;
+
+	int32_t b11 = 0;
+	int32_t b4_1 = 0;
+	int32_t b10_5 = 0;
+	int32_t b12 = 0;
 	inst.opcode = bits.to_string().substr(25,7);
 	inst.func3 = static_cast<int>(bits.to_ulong() >> 12) & 0x7; // Convert to int
 	inst.func7 = static_cast<int>(bits.to_ulong() >> 25); // r-type=func7 & store=immediate[11:5]
@@ -93,28 +102,41 @@ Instruction decode_stage(const string& binary_instruction){
     		((bits.to_ulong() >> 25) & 0x7F) << 5 |  // Bits 31:25 become Bits 11:5
     		((bits.to_ulong() >> 7) & 0x1F)           // Bits 11:7 remain the same
 	);
-	bitset<12> imm_bits_branch = static_cast<int>(bits.to_ulong() >> 20) & 0xFFF;
-	inst.immediate_b = static_cast<int>(imm_bits_branch.to_ulong());
+	//bitset<12> imm_bits_branch = static_cast<int>(bits.to_ulong() >> 20) & 0xFFF;
+	//bitset<12> imm_bits_branch = (static_cast<int>(bits.to_ulong() >> 31) << 11) |
+          //                       ((bits.to_ulong() >> 25) & 0x3E) |
+            //                     ((bits.to_ulong() >> 20) & 0x1F);
+	//inst.immediate_b = static_cast<int>(imm_bits_branch.to_ulong());
+	b11 = (bits.to_ulong() >> )
 	inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20);  // for i-type and load
 	inst.immediate_lui = static_cast<int>(bits.to_ulong() >> 12); // LUI: imm[31:12]
-	inst.rs1 = static_cast<unsigned int>(bits.to_ulong() >> 15) & 0x1F;
-	inst.rs2 = static_cast<unsigned int>(bits.to_ulong() >> 20) & 0x1F;
+	inst.rs1 = static_cast<int>(bits.to_ulong() >> 15) & 0x1F;
+	inst.rs2 = static_cast<int>(bits.to_ulong() >> 20) & 0x1F;
 	inst.rd = static_cast<int>(bits.to_ulong() >> 7) & 0x1F;
-	inst.immediate_j = static_cast<int>(
-   	  	((bits.to_ulong() >> 20) & 0x001) << 19 |  // Bit 20 becomes Bit 19
-    		((bits.to_ulong() >> 1) & 0x3FF) << 9 |    // Bits 10:1 become Bits 10:9
-    		((bits.to_ulong() >> 11) & 0x001) << 8 |   // Bit 11 becomes Bit 8
-    		((bits.to_ulong() >> 12) & 0xFF0)           // Bits 19:12 remain the same
-	);
+//	inst.immediate_j = static_cast<int>(
+  // 	  	((bits.to_ulong() >> 20) & 0x001) << 19 |  // Bit 20 becomes Bit 19
+    //		((bits.to_ulong() >> 1) & 0x3FF) << 9 |    // Bits 10:1 become Bits 10:9
+    //		((bits.to_ulong() >> 11) & 0x001) << 8 |   // Bit 11 becomes Bit 8
+    //		((bits.to_ulong() >> 12) & 0xFF0)           // Bits 19:12 remain the same
+//	);
+	tmp1 = (bits.to_ulong() >> 23) & 0xFF; //[19:12]
+	tmp2 = (bits.to_ulong() >> 22) & 0x1; // [11]
+	tmp3 = (bits.to_ulong() >> 12) & 0x3FF; // [10:1]
+	tmp4 = (bits.to_ulong() >> 31); // [31]
+	inst.immediate_j = static_cast<int>(tmp1 | tmp2 | tmp3 | tmp4);
 	if (bits[31] == 1) {
 		inst.immediate_s |= 0xFFFFF000;
 		inst.immediate_j |= 0xFFF00000;
         	inst.immediate_i |= 0xFFFFF000; // Extend the sign for negative values
+     	   	inst.immediate_b |= 0xFFFFF000;  // Sign extension
     	}
-	if (imm_bits_branch[11] == 1) {
-     	   inst.immediate_b |= 0xFFFFF000;  // Sign extension
-    	}
-	inst.immediate_b <<= 1;
+//	if(bits[20] == 1){
+//		inst.immediate_j |= 0xFFF00000;
+//	}
+//	if (imm_bits_branch[12] == 1) {
+  //   	   inst.immediate_b |= 0xFFFFF000;  // Sign extension
+    //	}
+	//inst.immediate_b <<= 1;
 	if(inst.opcode == "0010011" && (inst.func3 == 0x1 || inst.func3 == 0x5) ){ // slli srli
 		inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20) & 0x1F;
 		if(bits[24] == 1){
@@ -155,7 +177,11 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc
 		cout << "I" << endl;
 		switch(decoded_inst.func3){
 			case 000: //addi
+				cout << "ADDI" << endl;
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
+				cout << "rs1: " << regfile[decoded_inst.rs1] << endl;
+				cout << "imm: " << decoded_inst.immediate_i << endl;
+
 				break;
 			case 0x4: // xori
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ decoded_inst.immediate_i;
@@ -196,14 +222,21 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc
 			case 0x0:
 				switch(decoded_inst.func7){
 					case  0x00: //add
+						cout << "\tADD" << endl;
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + regfile[decoded_inst.rs2];
+						cout << "rs1: " << regfile[decoded_inst.rs1] << endl;
+						cout << "rs2: " << regfile[decoded_inst.rs2] << endl;
 						break;
 					case  0x20: //sub
+						cout << "\tSUB" << endl;
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] - regfile[decoded_inst.rs2];
+						cout << "rs1: " << decoded_inst.rs1 << endl;
+						cout << "rs2: " << regfile[decoded_inst.rs2] << endl;
 						break;
 				}
 				break;
 			case 0x4: //xor
+				cout << "XOR" << endl;
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ regfile[decoded_inst.rs2];
 				break;
 			case 0x6: //or:
@@ -262,25 +295,36 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc
 		}
 	}
 	else if(decoded_inst.opcode == "1101111"){
-		cout << "JAL: " << endl;
+		cout << "\tJAL: " << endl;
 		switch(decoded_inst.func3){
 			case 0x0: 
-				long int jump_address = pc + decoded_inst.immediate_j; // undo one pc
-				regfile[decoded_inst.rd] = pc + 1;
+				int32_t jump_address = pc + static_cast<int>(decoded_inst.immediate_j); // undo one pc
+				if(map_t(decoded_inst.rd) == 0){
+					regfile[decoded_inst.rd] = 0;
+				}
+				else{
+					regfile[decoded_inst.rd] = pc + 1;
+				}
+				cout << "regfile rd at jump: " << regfile[decoded_inst.rd] << endl;
 				pc = jump_address;
+				cout << "jump address: " << jump_address << endl;
 				break;
 				
 		}
 	}
 	else if(decoded_inst.opcode == "1100011"){ 
+		int branch_imm = decoded_inst.immediate_b;
+		branch_imm <<= 1;
+		branch_imm >>= 1;
 		switch(decoded_inst.func3){
 			case 0x0: 
-				cout << "BEQ: " << endl;
+				cout << "\tBEQ: " << endl;
 				if(regfile[decoded_inst.rs1] == regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_b;
+					pc += branch_imm;
+					cout << "BEQ to new pc" << endl;
 				}
 				else{
-					cout << "Error BEQ" << endl;
+					cout << "BEQ Condition Not Met" << endl;
 				}
 				break;
 			case 0x1:
@@ -302,10 +346,14 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc
 				}
 				break;
 			case 0x5:
-				cout << "BGE: " << endl;
+				cout << "\tBGE: " << endl;
 				if(regfile[decoded_inst.rs1] >= regfile[decoded_inst.rs2]){
 					cout << "decoded_inst.immediate_b: " << decoded_inst.immediate_b << endl;
-					pc += decoded_inst.immediate_b;
+					pc += branch_imm;
+					cout << "BGE to new pc" << endl;
+				}
+				else{
+					cout << "BGE condition not met" << endl;
 				}
 				
 				break;
@@ -344,8 +392,8 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc
 //	cout << "rs1: " << decoded_inst.rs1 << " rs2: " << regfile[decoded_inst.rs2] << endl;
 //	cout << "imm: " << decoded_inst.immediate_i << endl;
 	cout << "register: t" << map_t(decoded_inst.rd) << " = " << regfile[decoded_inst.rd] << endl;
-	cout << "PC: " << pc_display << endl;
-}
+	cout << "PC: " << pc_display << " " << pc << endl;
+} 
 
 void exec_value(const Dmem& dmem_data){
 
@@ -394,8 +442,8 @@ int main(){
 	}
 	
 	memory[0] = -3;
-	memory[4] = 25;
-	memory[8] = 7;
+	memory[4] = 7;
+	memory[8] = 25;
 	memory[12]= -1;
 	
 	char user_input; 
