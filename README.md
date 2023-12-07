@@ -18,6 +18,12 @@ chmod 777 reformat.sh
 
 ```
 
+To run code: 
+```
+g++ cpu.cpp
+./a.out
+```
+
 Your newly formated binary dat file should be created and use that as the input file in C++ program
 
 ## Progress
