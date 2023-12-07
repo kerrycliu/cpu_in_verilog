@@ -78,9 +78,9 @@ struct Instruction {
 	int immediate_i;
 	int immediate_b;
 	int immediate_lui;
-	int32_t rs1;
-	int32_t rs2;
-	int32_t rd;
+	int rs1;
+	int rs2;
+	int rd;
 };
 
 Instruction decode_stage(const string& binary_instruction){
@@ -107,7 +107,7 @@ Instruction decode_stage(const string& binary_instruction){
           //                       ((bits.to_ulong() >> 25) & 0x3E) |
             //                     ((bits.to_ulong() >> 20) & 0x1F);
 	//inst.immediate_b = static_cast<int>(imm_bits_branch.to_ulong());
-	b11 = (bits.to_ulong() >> )
+	//b11 = (bits.to_ulong() >> )
 	inst.immediate_i = static_cast<int>(bits.to_ulong() >> 20);  // for i-type and load
 	inst.immediate_lui = static_cast<int>(bits.to_ulong() >> 12); // LUI: imm[31:12]
 	inst.rs1 = static_cast<int>(bits.to_ulong() >> 15) & 0x1F;
@@ -123,7 +123,7 @@ Instruction decode_stage(const string& binary_instruction){
 	tmp2 = (bits.to_ulong() >> 22) & 0x1; // [11]
 	tmp3 = (bits.to_ulong() >> 12) & 0x3FF; // [10:1]
 	tmp4 = (bits.to_ulong() >> 31); // [31]
-	inst.immediate_j = static_cast<int>(tmp1 | tmp2 | tmp3 | tmp4);
+	inst.immediate_j = static_cast<int>(tmp1 | tmp2 | tmp3 | tmp4)/4;
 	if (bits[31] == 1) {
 		inst.immediate_s |= 0xFFFFF000;
 		inst.immediate_j |= 0xFFF00000;
@@ -299,12 +299,14 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc, int32_t pc
 		switch(decoded_inst.func3){
 			case 0x0: 
 				int32_t jump_address = pc + static_cast<int>(decoded_inst.immediate_j); // undo one pc
-				if(map_t(decoded_inst.rd) == 0){
+				/*if(map_t(decoded_inst.rd) == 0){
 					regfile[decoded_inst.rd] = 0;
 				}
 				else{
 					regfile[decoded_inst.rd] = pc + 1;
 				}
+				*/
+				regfile[decoded_inst.rd] = pc + 1;
 				cout << "regfile rd at jump: " << regfile[decoded_inst.rd] << endl;
 				pc = jump_address;
 				cout << "jump address: " << jump_address << endl;
@@ -452,32 +454,11 @@ int main(){
 
 	cin >> user_input;
 
-//	int32_t dmem_values[4] = {-3,25,7,-1};
-	
-//	for (int i = 0; i < 4; i++){
-//		memory[i] = pre_store();
-//		cout << "main: " << memory[i] << endl;
-//	}
-//	cout << "memory" << endl;
-	//for (size_t i = 0; i < dataMemory.size(); ++i) {
-        //	int32_t intValue = std::stoi(dataMemory[i], nullptr, 2);
-        //	reinterpret_cast<int32_t*>(&dataMemory[baseAddress + i * sizeof(int32_t)])[0] = intValue;
-	//	cout << dataMemory << endl;
-    //	}
-	
 	int data_counter = 0;
 	
         if (user_input == 'r'){
 		while(pc < instr.size()){
-		//	while( data_counter < dmem.size()){
-		//		string binary_val = dmem[data_counter];
-		//		Dmem dmem_data = decode_dmem(binary_val);
-		//		exec_value(dmem_data);
-		//		data_counter++;
-		//	}
 			string binary_instruction = instr[pc];
-			//string binary_val = dmem[data_counter];
-			//Dmem dmem_data = decode_dmem(binary_val);
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc, pc_display, baseAddress);
 			pc_display += 4;
@@ -495,7 +476,7 @@ int main(){
 			string binary_instruction = user_instruction;
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc, pc_display, baseAddress);
-			pc += 4;
+			pc_display += 4;
 			pc++;
 		}
 	}
