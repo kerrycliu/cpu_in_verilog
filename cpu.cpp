@@ -14,6 +14,7 @@ vector<int32_t> regfile(32,0);
 vector<int32_t> memory(32,0);
 int32_t pc_display = 0;
 int32_t pc = 0;
+int32_t valid_address;
 
 signed int map_t(unsigned int x_reg){ // x reg to t reg
 	if(x_reg >= 5 && x_reg <= 31){
@@ -106,8 +107,8 @@ Instruction decode_stage(const string& binary_instruction){
 void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, uint32_t base_addr){
 	int imm_bits_signed = static_cast<int>(decoded_inst.immediate_i);
 	if(decoded_inst.opcode == "0000011"){
-		cout << "\tLoad Word Only" << endl;
-		int32_t valid_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
+	//	cout << "\tLoad Word Only" << endl;
+		valid_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
 		int32_t mem_ind = 0;
 		stringstream ss;
 		ss << hex << valid_address;
@@ -118,10 +119,10 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 
 	}
 	else if(decoded_inst.opcode == "0010011"){
-		cout << "I" << endl;
+	//	cout << "I" << endl;
 		switch(decoded_inst.func3){
 			case 000: //addi
-				cout << "\tADDI" << endl;
+	//			cout << "\tADDI" << endl;
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + decoded_inst.immediate_i;
 			//	cout << "rs1: " << regfile[decoded_inst.rs1] << endl;
 			//	cout << "imm: " << decoded_inst.immediate_i << endl;
@@ -161,18 +162,18 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 		}
 	}
 	else if(decoded_inst.opcode == "0110011"){
-		cout << "R" << endl;
+	//	cout << "R" << endl;
 		switch (decoded_inst.func3){
 			case 0x0:
 				switch(decoded_inst.func7){
 					case  0x00: //add
-						cout << "\tADD" << endl;
+	//					cout << "\tADD" << endl;
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] + regfile[decoded_inst.rs2];
 					//	cout << "rs1: " << regfile[decoded_inst.rs1] << endl;
 					//	cout << "rs2: " << regfile[decoded_inst.rs2] << endl;
 						break;
 					case  0x20: //sub
-						cout << "\tSUB" << endl;
+	//					cout << "\tSUB" << endl;
 						regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] - regfile[decoded_inst.rs2];
 					//	cout << "rs1: " << decoded_inst.rs1 << endl;
 					//	cout << "rs2: " << regfile[decoded_inst.rs2] << endl;
@@ -180,7 +181,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 				}
 				break;
 			case 0x4: //xor
-				cout << "XOR" << endl;
+	//			cout << "XOR" << endl;
 				regfile[decoded_inst.rd] = regfile[decoded_inst.rs1] ^ regfile[decoded_inst.rs2];
 				break;
 			case 0x6: //or:
@@ -223,7 +224,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 		}
 	}
 	else if(decoded_inst.opcode == "0100011"){
-		cout << "S" << endl;
+	//	cout << "S" << endl;
 		int32_t mem_ind;
 		int32_t memory_address = regfile[decoded_inst.rs1] + decoded_inst.immediate_s;
 		stringstream ss;
@@ -232,16 +233,16 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 		mem_ind &= 0xFF;
 		try{
 			memory.at(mem_ind) = regfile[decoded_inst.rs2];
-			cout << "Stored: " << memory[mem_ind] << " in address " << memory_address << endl;
+	//		cout << "Stored: " << memory[mem_ind] << " in address " << memory_address << endl;
 		}
 		catch(const out_of_range& e){
 			cout << "Stored in: " << memory_address << endl;
 		}
 	}
 	else if(decoded_inst.opcode == "1101111"){
-		cout << "\tJAL: " << endl;
+		//cout << "\tJAL: " << endl;
 		int32_t jump_address;
-		cout << " j imm: " << static_cast<unsigned int>(decoded_inst.immediate_j) << endl;
+		//cout << " j imm: " << static_cast<unsigned int>(decoded_inst.immediate_j)/4 << endl;
 		if(map_t(decoded_inst.rd) == 0){
 			regfile[decoded_inst.rd] = 0;
 			pc = pc + static_cast<int>(decoded_inst.immediate_j);
@@ -251,17 +252,17 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 		}
 	}
 	else if(decoded_inst.opcode == "1100011"){ 
-		int32_t result, result1;
+		int32_t result, result1,result2;
 		switch(decoded_inst.func3){
 			case 0x0: 
-				cout << "\tBEQ: " << endl;
+	//			cout << "\tBEQ: " << endl;
 				if (map_t(decoded_inst.rs2) == 0){
 					regfile[decoded_inst.rs2] = 0;
 				}
 				result = regfile[decoded_inst.rs1] - regfile[decoded_inst.rs2]; 
 				if(result == 0){
 					pc += static_cast<int>(decoded_inst.immediate_b);
-					cout << "BEQ to new pc" << endl;
+	//				cout << "BEQ to new pc" << endl;
 				}
 				break;
 			case 0x1:
@@ -274,35 +275,40 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 				}
 				break;
 			case 0x4:
-				cout << "BLT: " << endl;
-				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
-					pc += decoded_inst.immediate_b;
+	//			cout << "BLT: " << endl;
+				if (map_t(decoded_inst.rs2) == 0){
+					regfile[decoded_inst.rs2] = 0;
+				}
+				result2 = regfile[decoded_inst.rs1] - regfile[decoded_inst.rs2];
+				if(result2 <= 0){
+					pc = pc + (static_cast<int>(decoded_inst.immediate_b)/2 + 1);
+	//				cout << "BLT to new pc" << endl;
 				}
 				else{
-					cout << "Error BLT" << endl;
+	//				cout << "No BLT condition met" << endl;
 				}
 				break;
 			case 0x5:
-				cout << "\tBGE: " << endl;
-				cout << "t0: " << static_cast<int>(regfile[decoded_inst.rs1]) << endl;
-				cout << "x0: " << static_cast<int>(regfile[decoded_inst.rs2]) << endl;
+	//			cout << "\tBGE: " << endl;
+	//			cout << "t0: " << static_cast<int>(regfile[decoded_inst.rs1]) << endl;
+	//			cout << "x0: " << static_cast<int>(regfile[decoded_inst.rs2]) << endl;
 				if (map_t(decoded_inst.rs2) == 0){
 					regfile[decoded_inst.rs2] = 0;
 				}
 				result1 = regfile[decoded_inst.rs1] - regfile[decoded_inst.rs2];
-				cout << "result: " << result1 << endl;
+	//			cout << "result: " << result1 << endl;
 				if(result1 >= 0){
-					cout << "decoded_inst.immediate_b: " << static_cast<int>(decoded_inst.immediate_b) << endl;
+	//				cout << "decoded_inst.immediate_b: " << static_cast<int>(decoded_inst.immediate_b) << endl;
 					pc = pc + (static_cast<int>(decoded_inst.immediate_b)/2 - 1);
-					cout << "BGE to new pc" << endl;
+	//				cout << "BGE to new pc" << endl;
 				}
 				else{
-					cout << "BGE condition not met" << endl;
+	//				cout << "BGE condition not met" << endl;
 				}
 				
 				break;
 			case 0x6:
-				cout << "BLTU: " << endl;
+	//			cout << "BLTU: " << endl;
 				if(regfile[decoded_inst.rs1] < regfile[decoded_inst.rs2]){
 					pc += decoded_inst.immediate_b;
 				}
@@ -322,7 +328,7 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 		}
 	}
 	else if(decoded_inst.opcode == "0110111"){
-		cout << "\tLUI instruction " << endl;
+//		cout << "\tLUI instruction " << endl;
 		regfile[decoded_inst.rd] = decoded_inst.immediate_lui << 12;
 	}
 	else if(decoded_inst.opcode == "0010111"){
@@ -332,9 +338,12 @@ void execute_instruction(const Instruction& decoded_inst, int32_t pc_display, ui
 	else{
 		cerr << "invalid instruction" << endl;
 	}
- 	
-	cout << "register: t" << map_t(decoded_inst.rd) << " = " << regfile[decoded_inst.rd] << endl;
-	cout << "PC: " << pc_display << " " << pc << endl;
+    	
+	stringstream hh;
+	hh << hex << regfile[decoded_inst.rd];
+	string res (hh.str());
+	cout << "register: t" << map_t(decoded_inst.rd) << " = " << res << endl;
+	cout << "PC: " << pc_display << endl;
 } 
 
 int main(){
@@ -343,7 +352,7 @@ int main(){
 	
 	ifstream myfile;
 	string mystring;
-	myfile.open("r_type_cpp.dat");
+	myfile.open("arith_mean_cpp.dat");
 	if (myfile.is_open()){
 		while(getline(myfile, mystring)){
 			instr.push_back(mystring);
@@ -354,32 +363,60 @@ int main(){
 		}
 		myfile.close();
 	}
-	
+	/*
+	ifstream dataFile("dmem_cpp.dat", ios::binary);
+	string mystring2;
+	if(dataFile.is_open()){
+		while (getline(dataFile, mystring2)) {
+	//		int32_t intVal = stoi(mystring2, nullptr, 2);
+            		dmem.push_back(mystring2);
+		//	cout << "Memory[" << baseAddress + dataMemory.size() * sizeof(int32_t) << "] = " << intVal << endl;
+			//cout << dataMemory.back() << endl;
+			if(dmem.size()==32){
+				break;
+			}
+        	}	
+        	dataFile.close();
+	}
+
+	*/
+	memory[0] = 0;
+	memory[4] = -1;
+	memory[8] = 3;
+	memory[12]= -3;
+	memory[16] = 9;
+	memory[20] = 6;
+	memory[24] = 0;
+	memory[28] = 0;
+	memory[32] = 10;
+	/*
 	memory[0] = -3;
 	memory[4] = 7;
 	memory[8] = 25;
-	memory[12]= -1;
-	
-	char user_input; 
+	memory[2]= -1;
+*/
+	while(true){
+	string user_input; 
 	cout << "Enter 'r': run entire program at once.  " << endl;
+	cout << "Enter 'pc': to show pc" << endl;
 	cout << "Enter 's': run one instruction at a time. Wait for next instruction. Ctrl C to exit." << endl;
+	cout << "Enter 'x1,x2...': for register value.  Ctrl C to exit." << endl;
+
 
 	cin >> user_input;
 
 	int data_counter = 0;
 	
-        if (user_input == 'r'){
+        if (user_input == "r"){
 		while(pc < instr.size()){
 			string binary_instruction = instr[pc];
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc_display, baseAddress);
 			pc_display += 4;
 			pc++;
-		}
-
 	}
-	else if(user_input == 's'){
-		while(true){
+}
+	else if(user_input == "s"){
 			string user_instruction;
 			cout << "Enter 32-bit instruction now: " << endl;
 			cin >> user_instruction;
@@ -387,14 +424,83 @@ int main(){
 			Instruction decoded_inst = decode_stage(binary_instruction);
 			execute_instruction(decoded_inst, pc_display, baseAddress);
 			pc_display += 4;
-			pc++;
-		}
+	//		pc++;
+		
 	}
-	else {
-		cout << "Invalid input" << endl;
-		return 1;
+	else if (user_input == "pc"){
+		cout << "pc: " << pc << endl;
+
 	
+	}else if(user_input == "x0"){
+		cout << "Register 0" << regfile[0] <<endl;
 	}
+	else if (user_input == "x1") {
+        	std::cout << "Register 1: " << regfile[1] << std::endl;
+    	} 
+	else if (user_input == "x2") {
+        	std::cout << "Register 2: " << regfile[2] << std::endl;
+    	} 
+	else if (user_input == "x3") {
+        	std::cout << "Register 3: " << regfile[3] << std::endl;
+    } else if (user_input == "x4") {
+        std::cout << "Register 4: " << regfile[4] << std::endl;
+    } else if (user_input == "x5") {
+        std::cout << "Register 5: " << regfile[5] << std::endl;
+    } else if (user_input == "x6") {
+        std::cout << "Register 6: " << regfile[6] << std::endl;
+    } else if (user_input == "x7") {
+        std::cout << "Register 7: " << regfile[7] << std::endl;
+    } else if (user_input == "x8") {
+        std::cout << "Register 8: " << regfile[8] << std::endl;
+    } else if (user_input == "x9") {
+        std::cout << "Register 9: " << regfile[9] << std::endl;
+    } else if (user_input == "x10") {
+        std::cout << "Register 10: " << regfile[10] << std::endl;
+    } else if (user_input == "x11") {
+        std::cout << "Register 11: " << regfile[11] << std::endl;
+    } else if (user_input == "x12") {
+        std::cout << "Register 12: " << regfile[12] << std::endl;
+    } else if (user_input == "x13") {
+        std::cout << "Register 13: " << regfile[13] << std::endl;
+    } else if (user_input == "x14") {
+        std::cout << "Register 14: " << regfile[14] << std::endl;
+    } else if (user_input == "x15") {
+        std::cout << "Register 15: " << regfile[15] << std::endl;
+    } else if (user_input == "x16") {
+        std::cout << "Register 16: " << regfile[16] << std::endl;
+    } else if (user_input == "x17") {
+        std::cout << "Register 17: " << regfile[17] << std::endl;
+    } else if (user_input == "x18") {
+        std::cout << "Register 18: " << regfile[18] << std::endl;
+    } else if (user_input == "x19") {
+        std::cout << "Register 19: " << regfile[19] << std::endl;
+    } else if (user_input == "x20") {
+        std::cout << "Register 20: " << regfile[20] << std::endl;
+    } else if (user_input == "x21") {
+        std::cout << "Register 21: " << regfile[21] << std::endl;
+    } else if (user_input == "x22") {
+        std::cout << "Register 22: " << regfile[22] << std::endl;
+    } else if (user_input == "x23") {
+        std::cout << "Register 23: " << regfile[23] << std::endl;
+    } else if (user_input == "x24") {
+        std::cout << "Register 24: " << regfile[24] << std::endl;
+    } else if (user_input == "x25") {
+        std::cout << "Register 25: " << regfile[25] << std::endl;
+    } else if (user_input == "x26") {
+        std::cout << "Register 26: " << regfile[26] << std::endl;
+    } else if (user_input == "x27") {
+        std::cout << "Register 27: " << regfile[27] << std::endl;
+    } else if (user_input == "x28") {
+        std::cout << "Register 28: " << regfile[28] << std::endl;
+    } else if (user_input == "x29") {
+        std::cout << "Register 29: " << regfile[29] << std::endl;
+    } else if (user_input == "x30") {
+        std::cout << "Register 30: " << regfile[30] << std::endl;
+    } else if (user_input == "x31") {
+        std::cout << "Register 31: " << regfile[31] << std::endl;
+    }
+}
+
 	return 0;
 }
 

@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Input file containing binary values
-input_file="dmem.dat"
+input_file="arith_mean.dat"
 
 # Output file for reformatted instructions
-output_file="dmem_cpp.dat"
+output_file="arith_mean_cpp.dat"
 
 # Loop through the input file, grouping every 4 lines and reformatting
 while IFS= read -r line0 && IFS= read -r line1 && IFS= read -r line2 && IFS= read -r line3; do
