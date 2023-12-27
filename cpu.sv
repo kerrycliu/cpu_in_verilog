@@ -1,12 +1,12 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // Company:
-// Engineer:
+// Engineer: Kerry Liu
 //
 // Create Date: 09/25/2023 12:22:07 PM
 // Design Name:
 // Module Name: cpu
-// Project Name:
+// Project Name: RV32I in SystemVerilog
 // Target Devices:
 // Tool Versions:
 // Description:
